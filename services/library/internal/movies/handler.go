@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"movie-platform/library/internal/auth"
 	"movie-platform/library/internal/transport/http/response"
 	"net/http"
 )
@@ -25,10 +26,16 @@ type createMovieRequest struct {
 
 // Create godoc
 // @Summary Create new movie
-// @Description Adding new movie to the list
+// @Description Adding new movie to the user's movie list
 // @Tags movies
+// @Accept json
+// @Produce json
+// @Security BearerAuth
 // @Param request body createMovieRequest true "Movie data"
-// @Success 200 {object} Movie
+// @Success 201 {object} Movie
+// @Failure 400 {object} response.ErrorResponse
+// @Failure 401 {object} response.ErrorResponse
+// @Failure 409 {object} response.ErrorResponse
 // @Failure 500 {object} response.ErrorResponse
 // @Router /movies [post]
 func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -45,10 +52,14 @@ func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testUserID := "11111111-1111-1111-1111-111111111111"
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
 
 	movie, err := handler.service.Create(r.Context(), CreateParams{
-		UserID:      testUserID,
+		UserID:      userID,
 		Title:       req.Title,
 		ReleaseYear: req.ReleaseYear,
 	})
@@ -74,10 +85,12 @@ func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 // GetMovieList godoc
 // @Summary Get movie list
-// @Description Returns all active movies for user
+// @Description Returns all active movies for authenticated user
 // @Tags movies
 // @Produce json
+// @Security BearerAuth
 // @Success 200 {array} Movie
+// @Failure 401 {object} response.ErrorResponse
 // @Failure 500 {object} response.ErrorResponse
 // @Router /movies [get]
 func (handler *Handler) GetMovieList(w http.ResponseWriter, r *http.Request) {
@@ -85,10 +98,14 @@ func (handler *Handler) GetMovieList(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
-	testUserID := "11111111-1111-1111-1111-111111111111"
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
 
 	movieList, err := handler.service.List(r.Context(), ListParams{
-		UserID: testUserID,
+		UserID: userID,
 	})
 
 	if err != nil {
@@ -100,28 +117,32 @@ func (handler *Handler) GetMovieList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(movieList)
 }
 
-// Delete godoc
-// @Summary Delete one movie
-// @Description Deleting one movie from the list
+// GetRandom godoc
+// @Summary Get random movie
+// @Description Returns random active movie for authenticated user
 // @Tags movies
-// @Param id path string true "Movie ID"
-// @Success 204 "No content"
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} Movie
+// @Failure 401 {object} response.ErrorResponse
 // @Failure 404 {object} response.ErrorResponse
 // @Failure 500 {object} response.ErrorResponse
-// @Router /movies/{id} [delete]
-func (handler *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
+// @Router /movies/random [get]
+func (handler *Handler) GetRandom(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
 		response.Error(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
-	movieID := r.PathValue("id")
-	testUserID := "11111111-1111-1111-1111-111111111111"
 
-	err := handler.service.Delete(r.Context(), DeleteParams{
-		UserID: testUserID,
-		ID:     movieID,
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+
+	movie, err := handler.service.GetRandom(r.Context(), GetRandomParams{
+		UserID: userID,
 	})
-
 	if err != nil {
 		if errors.Is(err, ErrMovieNotFound) {
 			response.Error(w, http.StatusNotFound, "movie_not_found", "movie not found")
@@ -131,17 +152,22 @@ func (handler *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "internal_error", "internal error")
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	log.Println("Deleted movie with ID:", movieID)
+	json.NewEncoder(w).Encode(movie)
 }
 
 // GetOne godoc
 // @Summary Get movie by id
-// @Description Returns one movie by id
+// @Description Returns one movie by id for authenticated user
 // @Tags movies
 // @Produce json
+// @Security BearerAuth
 // @Param id path string true "Movie ID"
 // @Success 200 {object} Movie
+// @Failure 400 {object} response.ErrorResponse
+// @Failure 401 {object} response.ErrorResponse
 // @Failure 404 {object} response.ErrorResponse
 // @Failure 500 {object} response.ErrorResponse
 // @Router /movies/{id} [get]
@@ -151,7 +177,11 @@ func (handler *Handler) GetOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	movieID := r.PathValue("id")
-	testUserID := "11111111-1111-1111-1111-111111111111"
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
 
 	if movieID == "" {
 		response.Error(w, http.StatusBadRequest, "movie_id_required", "movie id is required")
@@ -159,7 +189,7 @@ func (handler *Handler) GetOne(w http.ResponseWriter, r *http.Request) {
 	}
 
 	movie, err := handler.service.GetOne(r.Context(), GetParams{
-		UserID: testUserID,
+		UserID: userID,
 		ID:     movieID,
 	})
 
@@ -177,6 +207,47 @@ func (handler *Handler) GetOne(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(movie)
 }
 
+// Delete godoc
+// @Summary Delete movie
+// @Description Soft deletes movie by id for authenticated user
+// @Tags movies
+// @Security BearerAuth
+// @Param id path string true "Movie ID"
+// @Success 204 "No Content"
+// @Failure 401 {object} response.ErrorResponse
+// @Failure 404 {object} response.ErrorResponse
+// @Failure 500 {object} response.ErrorResponse
+// @Router /movies/{id} [delete]
+func (handler *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		response.Error(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	movieID := r.PathValue("id")
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+
+	err := handler.service.Delete(r.Context(), DeleteParams{
+		UserID: userID,
+		ID:     movieID,
+	})
+
+	if err != nil {
+		if errors.Is(err, ErrMovieNotFound) {
+			response.Error(w, http.StatusNotFound, "movie_not_found", "movie not found")
+			return
+		}
+
+		response.Error(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	log.Println("Deleted movie with ID:", movieID)
+}
+
 type makeWatchedRequest struct {
 	Rating int     `json:"rating"`
 	Review *string `json:"review"`
@@ -184,12 +255,16 @@ type makeWatchedRequest struct {
 
 // MakeWatched godoc
 // @Summary Mark movie as watched
-// @Description Changing movie status to "watched"
+// @Description Changes movie status to watched and saves rating/review
 // @Tags movies
+// @Accept json
 // @Produce json
-// @Param request body makeWatchedRequest true "Movie data"
+// @Security BearerAuth
 // @Param id path string true "Movie ID"
+// @Param request body makeWatchedRequest true "Watched movie data"
 // @Success 200 {object} Movie
+// @Failure 400 {object} response.ErrorResponse
+// @Failure 401 {object} response.ErrorResponse
 // @Failure 404 {object} response.ErrorResponse
 // @Failure 500 {object} response.ErrorResponse
 // @Router /movies/{id}/watched [patch]
@@ -214,11 +289,15 @@ func (handler *Handler) MakeWatched(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testUserID := "11111111-1111-1111-1111-111111111111"
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
 
 	movie, err := handler.service.MakeWatched(r.Context(), MakeWatchedParams{
 		ID:     movieID,
-		UserID: testUserID,
+		UserID: userID,
 		Rating: req.Rating,
 		Review: req.Review,
 	})
@@ -245,11 +324,14 @@ func (handler *Handler) MakeWatched(w http.ResponseWriter, r *http.Request) {
 
 // MakeUnwatched godoc
 // @Summary Mark movie as unwatched
-// @Description Changing movie status to "unwatched"
+// @Description Changes movie status to unwatched and clears rating, review and watched_at
 // @Tags movies
 // @Produce json
+// @Security BearerAuth
 // @Param id path string true "Movie ID"
-// @Success 204 "No Content"
+// @Success 200 {object} Movie
+// @Failure 400 {object} response.ErrorResponse
+// @Failure 401 {object} response.ErrorResponse
 // @Failure 404 {object} response.ErrorResponse
 // @Failure 500 {object} response.ErrorResponse
 // @Router /movies/{id}/unwatched [patch]
@@ -266,48 +348,17 @@ func (handler *Handler) MakeUnwatched(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testUserID := "11111111-1111-1111-1111-111111111111"
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
 
 	movie, err := handler.service.MakeUnwatched(r.Context(), MakeUnwatchedParams{
 		ID:     movieID,
-		UserID: testUserID,
+		UserID: userID,
 	})
 
-	if err != nil {
-		if errors.Is(err, ErrMovieNotFound) {
-			response.Error(w, http.StatusNotFound, "movie_not_found", "movie not found")
-			return
-		}
-
-		response.Error(w, http.StatusInternalServerError, "internal_error", "internal error")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(movie)
-}
-
-// GetRandom godoc
-// @Summary Get random movie
-// @Description Returns random active movie for user
-// @Tags movies
-// @Produce json
-// @Success 200 {object} Movie
-// @Failure 404 {object} response.ErrorResponse
-// @Failure 500 {object} response.ErrorResponse
-// @Router /movies/random [get]
-func (handler *Handler) GetRandom(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.Error(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-
-	testUserID := "11111111-1111-1111-1111-111111111111"
-
-	movie, err := handler.service.GetRandom(r.Context(), GetRandomParams{
-		UserID: testUserID,
-	})
 	if err != nil {
 		if errors.Is(err, ErrMovieNotFound) {
 			response.Error(w, http.StatusNotFound, "movie_not_found", "movie not found")

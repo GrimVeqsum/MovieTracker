@@ -1,25 +1,31 @@
 package httptransport
 
 import (
-	"movie-platform/library/internal/movies"
 	"net/http"
+
+	"movie-platform/library/internal/auth"
+	"movie-platform/library/internal/movies"
 
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func NewRouter(handler *Handler, movieHandler *movies.Handler) http.Handler {
+func NewRouter(handler *Handler, movieHandler *movies.Handler, jwtSecret string) http.Handler {
 	mux := http.NewServeMux()
+
+	authMiddleware := auth.NewMiddleware(jwtSecret)
 
 	mux.HandleFunc("GET /health", handler.Healther)
 	mux.HandleFunc("GET /ready", handler.Ready)
-	mux.HandleFunc("GET /swagger/", httpSwagger.WrapHandler)
-	mux.HandleFunc("POST /movies", movieHandler.Create)
-	mux.HandleFunc("GET /movies", movieHandler.GetMovieList)
-	mux.HandleFunc("DELETE /movies/{id}", movieHandler.Delete)
-	mux.HandleFunc("GET /movies/{id}", movieHandler.GetOne)
-	mux.HandleFunc("GET /movies/random", movieHandler.GetRandom)
-	mux.HandleFunc("PATCH /movies/{id}/watched", movieHandler.MakeWatched)
-	mux.HandleFunc("PATCH /movies/{id}/unwatched", movieHandler.MakeUnwatched)
+
+	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
+
+	mux.Handle("POST /movies", authMiddleware(http.HandlerFunc(movieHandler.Create)))
+	mux.Handle("GET /movies", authMiddleware(http.HandlerFunc(movieHandler.GetMovieList)))
+	mux.Handle("GET /movies/random", authMiddleware(http.HandlerFunc(movieHandler.GetRandom)))
+	mux.Handle("GET /movies/{id}", authMiddleware(http.HandlerFunc(movieHandler.GetOne)))
+	mux.Handle("DELETE /movies/{id}", authMiddleware(http.HandlerFunc(movieHandler.Delete)))
+	mux.Handle("PATCH /movies/{id}/watched", authMiddleware(http.HandlerFunc(movieHandler.MakeWatched)))
+	mux.Handle("PATCH /movies/{id}/unwatched", authMiddleware(http.HandlerFunc(movieHandler.MakeUnwatched)))
 
 	return mux
 }

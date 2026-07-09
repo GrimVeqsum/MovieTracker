@@ -3,15 +3,16 @@ package main
 import (
 	"context"
 	"log"
-	"movie-platform/library/internal/config"
-	"movie-platform/library/internal/movies"
-	librarypostgres "movie-platform/library/internal/platform/postgres"
-	httptransport "movie-platform/library/internal/transport/http"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"movie-platform/library/internal/config"
+	"movie-platform/library/internal/movies"
+	librarypostgres "movie-platform/library/internal/platform/postgres"
+	httptransport "movie-platform/library/internal/transport/http"
 
 	_ "movie-platform/library/docs"
 
@@ -23,13 +24,19 @@ import (
 // @description API for managing user's movie library.
 // @host localhost:8081
 // @BasePath /
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token. Example: "Bearer eyJhbGciOi..."
 func main() {
 	_ = godotenv.Load()
+
 	cfg, err := config.Load()
 	if err != nil {
-		log.Println("Ошибка подключения к бд", err)
+		log.Println("ошибка загрузки config:", err)
 		return
 	}
+
 	db, err := librarypostgres.NewConnection(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Println("ошибка подключения к БД:", err)
@@ -42,15 +49,17 @@ func main() {
 	movieHandler := movies.NewHandler(movieService)
 
 	handler := httptransport.NewHandler(db)
-	router := httptransport.NewRouter(handler, movieHandler)
+	router := httptransport.NewRouter(handler, movieHandler, cfg.JWTSecret)
+
 	addr := ":" + cfg.HTTPPort
 
 	log.Println("Сервер запущен на", addr)
+
 	server := &http.Server{
 		Addr:    addr,
 		Handler: router,
 	}
-	//follow notifications
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -75,5 +84,6 @@ func main() {
 	if err != nil {
 		log.Printf("ошибка остановки HTTP-сервера: %v", err)
 	}
+
 	log.Println("HTTP-сервер остановлен")
 }

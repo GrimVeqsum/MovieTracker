@@ -102,7 +102,7 @@ paths:
       - CheckServicesStatus
   /movies:
     get:
-      description: Returns all active movies for user
+      description: Returns all active movies for authenticated user
       produces:
       - application/json
       responses:
@@ -112,15 +112,23 @@ paths:
             items:
               $ref: '#/definitions/movies.Movie'
             type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Get movie list
       tags:
       - movies
     post:
-      description: Adding new movie to the list
+      consumes:
+      - application/json
+      description: Adding new movie to the user's movie list
       parameters:
       - description: Movie data
         in: body
@@ -128,21 +136,37 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/movies.createMovieRequest'
+      produces:
+      - application/json
       responses:
-        "200":
-          description: OK
+        "201":
+          description: Created
           schema:
             $ref: '#/definitions/movies.Movie'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Create new movie
       tags:
       - movies
   /movies/{id}:
     delete:
-      description: Deleting one movie from the list
+      description: Soft deletes movie by id for authenticated user
       parameters:
       - description: Movie ID
         in: path
@@ -151,7 +175,11 @@ paths:
         type: string
       responses:
         "204":
-          description: No content
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -160,11 +188,13 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/response.ErrorResponse'
-      summary: Delete one movie
+      security:
+      - BearerAuth: []
+      summary: Delete movie
       tags:
       - movies
     get:
-      description: Returns one movie by id
+      description: Returns one movie by id for authenticated user
       parameters:
       - description: Movie ID
         in: path
@@ -178,6 +208,14 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/movies.Movie'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -186,12 +224,15 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Get movie by id
       tags:
       - movies
   /movies/{id}/unwatched:
     patch:
-      description: Changing movie status to "unwatched"
+      description: Changes movie status to unwatched and clears rating, review and
+        watched_at
       parameters:
       - description: Movie ID
         in: path
@@ -201,8 +242,18 @@ paths:
       produces:
       - application/json
       responses:
-        "204":
-          description: No Content
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/movies.Movie'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -211,24 +262,28 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Mark movie as unwatched
       tags:
       - movies
   /movies/{id}/watched:
     patch:
-      description: Changing movie status to "watched"
+      consumes:
+      - application/json
+      description: Changes movie status to watched and saves rating/review
       parameters:
-      - description: Movie data
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/movies.makeWatchedRequest'
       - description: Movie ID
         in: path
         name: id
         required: true
         type: string
+      - description: Watched movie data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/movies.makeWatchedRequest'
       produces:
       - application/json
       responses:
@@ -236,6 +291,14 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/movies.Movie'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -244,12 +307,14 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Mark movie as watched
       tags:
       - movies
   /movies/random:
     get:
-      description: Returns random active movie for user
+      description: Returns random active movie for authenticated user
       produces:
       - application/json
       responses:
@@ -257,6 +322,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/movies.Movie'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -265,6 +334,8 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Get random movie
       tags:
       - movies
@@ -289,4 +360,11 @@ paths:
       summary: Readycheck of the services
       tags:
       - CheckServicesStatus
+securityDefinitions:
+  BearerAuth:
+    description: 'Type "Bearer" followed by a space and JWT token. Example: "Bearer
+      eyJhbGciOi..."'
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

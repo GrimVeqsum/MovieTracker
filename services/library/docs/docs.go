@@ -43,7 +43,12 @@ const docTemplate = `{
         },
         "/movies": {
             "get": {
-                "description": "Returns all active movies for user",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all active movies for authenticated user",
                 "produces": [
                     "application/json"
                 ],
@@ -61,6 +66,12 @@ const docTemplate = `{
                             }
                         }
                     },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -70,7 +81,18 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Adding new movie to the list",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adding new movie to the user's movie list",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "movies"
                 ],
@@ -87,10 +109,28 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "201": {
+                        "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/movies.Movie"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
                         }
                     },
                     "500": {
@@ -104,7 +144,12 @@ const docTemplate = `{
         },
         "/movies/random": {
             "get": {
-                "description": "Returns random active movie for user",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns random active movie for authenticated user",
                 "produces": [
                     "application/json"
                 ],
@@ -117,6 +162,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/movies.Movie"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
                         }
                     },
                     "404": {
@@ -136,7 +187,12 @@ const docTemplate = `{
         },
         "/movies/{id}": {
             "get": {
-                "description": "Returns one movie by id",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one movie by id for authenticated user",
                 "produces": [
                     "application/json"
                 ],
@@ -160,6 +216,18 @@ const docTemplate = `{
                             "$ref": "#/definitions/movies.Movie"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -175,11 +243,16 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "description": "Deleting one movie from the list",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft deletes movie by id for authenticated user",
                 "tags": [
                     "movies"
                 ],
-                "summary": "Delete one movie",
+                "summary": "Delete movie",
                 "parameters": [
                     {
                         "type": "string",
@@ -191,7 +264,13 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "204": {
-                        "description": "No content"
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -210,7 +289,12 @@ const docTemplate = `{
         },
         "/movies/{id}/unwatched": {
             "patch": {
-                "description": "Changing movie status to \"unwatched\"",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes movie status to unwatched and clears rating, review and watched_at",
                 "produces": [
                     "application/json"
                 ],
@@ -228,8 +312,23 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "No Content"
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/movies.Movie"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -248,7 +347,15 @@ const docTemplate = `{
         },
         "/movies/{id}/watched": {
             "patch": {
-                "description": "Changing movie status to \"watched\"",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes movie status to watched and saves rating/review",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -258,20 +365,20 @@ const docTemplate = `{
                 "summary": "Mark movie as watched",
                 "parameters": [
                     {
-                        "description": "Movie data",
+                        "type": "string",
+                        "description": "Movie ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Watched movie data",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/movies.makeWatchedRequest"
                         }
-                    },
-                    {
-                        "type": "string",
-                        "description": "Movie ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
                     }
                 ],
                 "responses": {
@@ -279,6 +386,18 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/movies.Movie"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.ErrorResponse"
                         }
                     },
                     "404": {
@@ -439,6 +558,14 @@ const docTemplate = `{
                     "$ref": "#/definitions/response.ErrorBody"
                 }
             }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "Type \"Bearer\" followed by a space and JWT token. Example: \"Bearer eyJhbGciOi...\"",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
         }
     }
 }`
