@@ -127,7 +127,7 @@ ORDER BY created_at DESC`
 		return nil, err
 	}
 	defer rows.Close()
-	var movies []Movie
+	movies := make([]Movie, 0)
 
 	for rows.Next() {
 		var movie Movie

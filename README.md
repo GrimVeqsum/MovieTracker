@@ -1,26 +1,14 @@
-## Run project:
-
-docker compose up --build
-
-## Stop project:
-
-docker compose down
-
-## Swagger:
-
-http://localhost:8081/swagger/
-
-## Reset database:
-
-docker compose down -v
-
 # MovieBase
 
-MovieBase is a backend project for managing a personal movie library.
+MovieBase — backend-проект для управления личной библиотекой фильмов.
 
-The project is built as a small microservice-based system with two Go services:
+Проект построен как небольшая микросервисная система на Go:
 
-## Tech Stack
+- Gateway Service — единая точка входа в API
+- Auth Service — регистрация, вход, выход и выдача JWT
+- Library Service — управление списком фильмов авторизованного пользователя
+
+## Стек
 
 - Go
 - net/http
@@ -32,11 +20,47 @@ The project is built as a small microservice-based system with two Go services:
 - bcrypt
 - Swagger / OpenAPI
 
-## Services
+## Сервисы
+
+### Gateway Service
+
+Gateway Service — основная точка входа в проект.
+
+Base URL:
+
+```text
+http://localhost:8080
+```
+
+Маршрутизация:
+
+```text
+/auth/*   -> Auth Service
+/movies*  -> Library Service
+```
+
+Основные endpoints через Gateway:
+
+```text
+POST   /auth/register
+POST   /auth/login
+POST   /auth/logout
+
+POST   /movies
+GET    /movies
+GET    /movies/random
+GET    /movies/{id}
+DELETE /movies/{id}
+PATCH  /movies/{id}/watched
+PATCH  /movies/{id}/unwatched
+
+GET    /health
+GET    /ready
+```
 
 ### Auth Service
 
-Auth Service is responsible for user registration, login, logout and access token generation.
+Auth Service отвечает за регистрацию пользователей, вход, выход и выдачу access token.
 
 Swagger:
 
@@ -56,7 +80,7 @@ GET  /ready
 
 ### Library Service
 
-Library Service is responsible for managing the authenticated user's movie list.
+Library Service отвечает за управление списком фильмов авторизованного пользователя.
 
 Swagger:
 
@@ -78,29 +102,27 @@ GET    /health
 GET    /ready
 ```
 
-All `/movies` endpoints require authorization.
+Все `/movies` endpoints требуют авторизацию.
 
-## Run
-
-From the project root:
+## Запуск проекта
 
 ```bash
-docker compose up --build -d
+docker compose up --build
 ```
 
-Check containers:
-
-```bash
-docker compose ps
-```
-
-Stop containers:
+## Остановка проекта
 
 ```bash
 docker compose down
 ```
 
-Stop containers and remove database volumes:
+## Проверка контейнеров
+
+```bash
+docker compose ps
+```
+
+## Сброс базы данных
 
 ```bash
 docker compose down -v
@@ -110,12 +132,143 @@ docker compose down -v
 
 Auth Swagger:
 
-To use protected Library endpoints in Swagger:
+```text
+http://localhost:8082/swagger/index.html
+```
 
-1. Open Auth Swagger.
-2. Call `POST /auth/register`.
-3. Call `POST /auth/login`.
-4. Copy `access_token` from the login response.
-5. Open Library Swagger.
-6. Click `Authorize`.
-7. Insert the token in this format:
+Library Swagger:
+
+```text
+http://localhost:8081/swagger/index.html
+```
+
+Чтобы использовать защищённые endpoints Library Service через Swagger:
+
+1. Открыть Auth Swagger.
+2. Вызвать `POST /auth/register`.
+3. Вызвать `POST /auth/login`.
+4. Скопировать `access_token` из ответа.
+5. Открыть Library Swagger.
+6. Нажать `Authorize`.
+7. Вставить токен в формате:
+
+```text
+Bearer <access_token>
+```
+
+## Пример использования через Gateway
+
+Регистрация:
+
+```http
+POST http://localhost:8080/auth/register
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+```
+
+Вход:
+
+```http
+POST http://localhost:8080/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+```
+
+После входа в ответе приходит `access_token`.
+
+Для запросов к фильмам нужно передавать токен:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+Создать фильм:
+
+```http
+POST http://localhost:8080/movies
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "title": "Inception",
+  "release_year": 2010
+}
+```
+
+Получить список фильмов:
+
+```http
+GET http://localhost:8080/movies
+Authorization: Bearer <access_token>
+```
+
+Получить случайный фильм:
+
+```http
+GET http://localhost:8080/movies/random
+Authorization: Bearer <access_token>
+```
+
+Отметить фильм просмотренным:
+
+```http
+PATCH http://localhost:8080/movies/{id}/watched
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "rating": 9,
+  "review": "Great movie"
+}
+```
+
+Отметить фильм непросмотренным:
+
+```http
+PATCH http://localhost:8080/movies/{id}/unwatched
+Authorization: Bearer <access_token>
+```
+
+Удалить фильм:
+
+```http
+DELETE http://localhost:8080/movies/{id}
+Authorization: Bearer <access_token>
+```
+
+Выйти:
+
+```http
+POST http://localhost:8080/auth/logout
+Authorization: Bearer <access_token>
+```
+
+## Авторизация
+
+В проекте используется JWT-авторизация.
+
+После успешного входа Auth Service создаёт JWT access token.
+
+Library Service защищает все `/movies` endpoints и проверяет токен из заголовка:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+ID пользователя хранится внутри JWT и используется в Library Service, чтобы пользователь мог работать только со своими фильмами.
+
+## Особенности
+
+- Gateway Service используется как единая точка входа.
+- Auth Service и Library Service используют отдельные базы PostgreSQL.
+- Миграции применяются автоматически через Docker Compose.
+- Swagger-документация доступна для Auth Service и Library Service.
+- Logout реализован как client-side token invalidation.

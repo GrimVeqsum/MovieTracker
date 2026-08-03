@@ -34,6 +34,24 @@ services:
     depends_on:
       library-postgres:
         condition: service_healthy
+        
+  gateway-app:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+    container_name: gateway-app
+    environment:
+      GATEWAY_HTTP_PORT: 8080
+      AUTH_SERVICE_URL: http://auth-app:8082
+      LIBRARY_SERVICE_URL: http://library-app:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-app:
+        condition: service_started
+      library-app:
+        condition: service_started
+    restart: unless-stopped
 
   library-app:
     build:
