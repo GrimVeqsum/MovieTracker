@@ -1,28 +1,146 @@
 services:
-  library-postgres:
-    image: postgres:18
-    container_name: library-postgres
-    environment:
-      POSTGRES_DB: library_db
-      POSTGRES_USER: library_user
-      POSTGRES_PASSWORD: library_password
-    ports:
-      - "5433:5432"
+  kafka-volume-init:
+    image: alpine:latest
+    container_name: kafka-volume-init
+    user: "0:0"
+
     volumes:
-      - library_postgres_data:/var/lib/postgresql
+      - kafka_data:/kafka-data
+
+    command:
+      - sh
+      - -c
+      - |
+        chown -R 1000:1000 /kafka-data
+        chmod -R 750 /kafka-data
+
+  kafka:
+    image: apache/kafka:4.3.1
+    hostname: kafka
+    container_name: kafka
+
+    depends_on:
+      kafka-volume-init:
+        condition: service_completed_successfully
+
+    ports:
+      - "9092:9092"
+
+    environment:
+      CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
+
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+
+      KAFKA_LISTENERS: "PLAINTEXT://:19092,CONTROLLER://:9093,PLAINTEXT_HOST://:9092"
+
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092"
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+      KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U library_user -d library_db"]
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1"
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 10s
+
     restart: unless-stopped
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    container_name: kafka-init
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        echo "Creating Kafka topics..."
+
+        /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka:19092 \
+          --create \
+          --if-not-exists \
+          --topic movie.events \
+          --partitions 3 \
+          --replication-factor 1
+
+        echo "Checking movie.events..."
+
+        /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka:19092 \
+          --describe \
+          --topic movie.events
+
+        echo "Kafka topics are ready"
+
+  library-postgres:
+    image: postgres:18
+    container_name: library-postgres
+
+    environment:
+      POSTGRES_DB: library_db
+      POSTGRES_USER: library_user
+      POSTGRES_PASSWORD: library_password
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - library_postgres_data:/var/lib/postgresql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h localhost -p 5432 -U library_user -d library_db"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+    restart: unless-stopped
+
 
   library-migrations:
     image: migrate/migrate:latest
     container_name: library-migrations
+
     volumes:
       - ./services/library/migrations:/migrations
+
     command:
       [
         "-path",
@@ -31,68 +149,76 @@ services:
         "postgres://library_user:library_password@library-postgres:5432/library_db?sslmode=disable",
         "up"
       ]
+
     depends_on:
       library-postgres:
         condition: service_healthy
-        
-  gateway-app:
-    build:
-      context: ./services/gateway
-      dockerfile: Dockerfile
-    container_name: gateway-app
-    environment:
-      GATEWAY_HTTP_PORT: 8080
-      AUTH_SERVICE_URL: http://auth-app:8082
-      LIBRARY_SERVICE_URL: http://library-app:8081
-    ports:
-      - "8080:8080"
-    depends_on:
-      auth-app:
-        condition: service_started
-      library-app:
-        condition: service_started
-    restart: unless-stopped
+
 
   library-app:
     build:
       context: ./services/library
       dockerfile: Dockerfile
+
     container_name: library-app
+
     environment:
       LIBRARY_HTTP_PORT: 8081
       LIBRARY_DATABASE_URL: postgres://library_user:library_password@library-postgres:5432/library_db?sslmode=disable
       LIBRARY_JWT_SECRET: dev_secret_change_me
+
+      LIBRARY_KAFKA_BROKER: kafka:19092
+      LIBRARY_KAFKA_TOPIC: movie.events
+
     ports:
       - "8081:8081"
+
     depends_on:
       library-migrations:
         condition: service_completed_successfully
+
+      kafka-init:
+        condition: service_completed_successfully
+
     restart: unless-stopped
-    
+
+
   auth-postgres:
     image: postgres:18
     container_name: auth-postgres
+
     environment:
       POSTGRES_DB: auth_db
       POSTGRES_USER: auth_user
       POSTGRES_PASSWORD: auth_password
+
     ports:
       - "5434:5432"
+
     volumes:
       - auth_postgres_data:/var/lib/postgresql
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U auth_user -d auth_db"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h localhost -p 5432 -U auth_user -d auth_db"
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 10s
+
     restart: unless-stopped
+
 
   auth-migrations:
     image: migrate/migrate:latest
     container_name: auth-migrations
+
     volumes:
       - ./services/auth/migrations:/migrations
+
     command:
       [
         "-path",
@@ -101,26 +227,60 @@ services:
         "postgres://auth_user:auth_password@auth-postgres:5432/auth_db?sslmode=disable",
         "up"
       ]
+
     depends_on:
       auth-postgres:
         condition: service_healthy
-  
+
+
   auth-app:
     build:
       context: ./services/auth
       dockerfile: Dockerfile
+
     container_name: auth-app
+
     environment:
       AUTH_HTTP_PORT: 8082
       AUTH_DATABASE_URL: postgres://auth_user:auth_password@auth-postgres:5432/auth_db?sslmode=disable
       AUTH_JWT_SECRET: dev_secret_change_me
+
     ports:
       - "8082:8082"
+
     depends_on:
       auth-migrations:
         condition: service_completed_successfully
+
     restart: unless-stopped
 
+
+  gateway-app:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+
+    container_name: gateway-app
+
+    environment:
+      GATEWAY_HTTP_PORT: 8080
+      AUTH_SERVICE_URL: http://auth-app:8082
+      LIBRARY_SERVICE_URL: http://library-app:8081
+
+    ports:
+      - "8080:8080"
+
+    depends_on:
+      auth-app:
+        condition: service_started
+
+      library-app:
+        condition: service_started
+
+    restart: unless-stopped
+
+
 volumes:
+  kafka_data:
   library_postgres_data:
   auth_postgres_data:
