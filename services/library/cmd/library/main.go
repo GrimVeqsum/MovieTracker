@@ -11,6 +11,7 @@ import (
 
 	"movie-platform/library/internal/config"
 	"movie-platform/library/internal/movies"
+	librarykafka "movie-platform/library/internal/platform/kafka"
 	librarypostgres "movie-platform/library/internal/platform/postgres"
 	httptransport "movie-platform/library/internal/transport/http"
 
@@ -37,19 +38,42 @@ func main() {
 		return
 	}
 
-	db, err := librarypostgres.NewConnection(context.Background(), cfg.DatabaseURL)
+	db, err := librarypostgres.NewConnection(
+		context.Background(),
+		cfg.DatabaseURL,
+	)
 	if err != nil {
 		log.Println("ошибка подключения к БД:", err)
 		return
 	}
 	defer db.Close()
 
+	kafkaProducer, err := librarykafka.NewProducer(
+		cfg.KafkaBroker,
+		cfg.KafkaTopic,
+	)
+	if err != nil {
+		log.Println("ошибка создания Kafka producer:", err)
+		return
+	}
+	defer kafkaProducer.Close()
+
 	movieRepo := movies.NewRepository(db)
-	movieService := movies.NewService(movieRepo)
+
+	movieService := movies.NewService(
+		movieRepo,
+		kafkaProducer,
+	)
+
 	movieHandler := movies.NewHandler(movieService)
 
 	handler := httptransport.NewHandler(db)
-	router := httptransport.NewRouter(handler, movieHandler, cfg.JWTSecret)
+
+	router := httptransport.NewRouter(
+		handler,
+		movieHandler,
+		cfg.JWTSecret,
+	)
 
 	addr := ":" + cfg.HTTPPort
 
@@ -75,14 +99,21 @@ func main() {
 	}()
 
 	<-ctx.Done()
+
 	log.Println("получен сигнал завершения")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		5*time.Second,
+	)
 	defer cancel()
 
 	err = server.Shutdown(shutdownCtx)
 	if err != nil {
-		log.Printf("ошибка остановки HTTP-сервера: %v", err)
+		log.Printf(
+			"ошибка остановки HTTP-сервера: %v",
+			err,
+		)
 	}
 
 	log.Println("HTTP-сервер остановлен")

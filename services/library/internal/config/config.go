@@ -9,6 +9,8 @@ type Config struct {
 	HTTPPort    string
 	DatabaseURL string
 	JWTSecret   string
+	KafkaBroker string
+	KafkaTopic  string
 }
 
 func Load() (Config, error) {
@@ -27,9 +29,21 @@ func Load() (Config, error) {
 		return Config{}, errors.New("LIBRARY_JWT_SECRET is empty")
 	}
 
+	kafkaBroker := os.Getenv("LIBRARY_KAFKA_BROKER")
+	if kafkaBroker == "" {
+		return Config{}, errors.New("LIBRARY_KAFKA_BROKER is empty")
+	}
+
+	kafkaTopic := os.Getenv("LIBRARY_KAFKA_TOPIC")
+	if kafkaTopic == "" {
+		return Config{}, errors.New("LIBRARY_KAFKA_TOPIC is empty")
+	}
+
 	return Config{
 		HTTPPort:    httpPort,
 		DatabaseURL: libURL,
 		JWTSecret:   jwtSecret,
+		KafkaBroker: kafkaBroker,
+		KafkaTopic:  kafkaTopic,
 	}, nil
 }
