@@ -65,9 +65,14 @@ func main() {
 		kafkaProducer,
 	)
 
-	movieHandler := movies.NewHandler(movieService)
+	movieHandler := movies.NewHandler(
+		movieService,
+	)
 
-	handler := httptransport.NewHandler(db)
+	handler := httptransport.NewHandler(
+		db,
+		movieService,
+	)
 
 	router := httptransport.NewRouter(
 		handler,
@@ -93,8 +98,12 @@ func main() {
 
 	go func() {
 		err := server.ListenAndServe()
+
 		if err != nil && err != http.ErrServerClosed {
-			log.Printf("ошибка HTTP-сервера: %v", err)
+			log.Printf(
+				"ошибка HTTP-сервера: %v",
+				err,
+			)
 		}
 	}()
 

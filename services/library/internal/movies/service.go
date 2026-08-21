@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Service struct {
@@ -67,10 +69,14 @@ func (service *Service) Create(
 	}
 
 	event := Event{
-		Type:       "MovieCreated",
-		MovieID:    movie.ID,
-		UserID:     movie.UserID,
-		OccurredAt: movie.CreatedAt.UTC(),
+		EventID:     uuid.NewString(),
+		Version:     1,
+		Type:        "MovieCreated",
+		MovieID:     movie.ID,
+		UserID:      movie.UserID,
+		Title:       movie.Title,
+		ReleaseYear: movie.ReleaseYear,
+		OccurredAt:  movie.CreatedAt.UTC(),
 	}
 
 	if err := service.publisher.Publish(ctx, event); err != nil {
@@ -223,4 +229,40 @@ func (service *Service) GetRandom(
 	return service.repo.GetRandom(ctx, GetRandomMovieParams{
 		UserID: params.UserID,
 	})
+}
+
+//meta
+
+type UpdateMetadataServiceParams struct {
+	ID               string
+	UserID           string
+	ExternalID       string
+	MetadataProvider string
+	OriginalTitle    string
+	Description      string
+	ReleaseYear      int
+	PosterURL        string
+	RuntimeMinutes   *int
+	Genres           []string
+}
+
+func (service *Service) UpdateMetadata(
+	ctx context.Context,
+	params UpdateMetadataServiceParams,
+) error {
+	return service.repo.UpdateMetadata(
+		ctx,
+		UpdateMetadataParams{
+			ID:               params.ID,
+			UserID:           params.UserID,
+			ExternalID:       params.ExternalID,
+			MetadataProvider: params.MetadataProvider,
+			OriginalTitle:    params.OriginalTitle,
+			Description:      params.Description,
+			ReleaseYear:      params.ReleaseYear,
+			PosterURL:        params.PosterURL,
+			RuntimeMinutes:   params.RuntimeMinutes,
+			Genres:           params.Genres,
+		},
+	)
 }

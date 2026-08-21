@@ -9,7 +9,11 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func NewRouter(handler *Handler, movieHandler *movies.Handler, jwtSecret string) http.Handler {
+func NewRouter(
+	handler *Handler,
+	movieHandler *movies.Handler,
+	jwtSecret string,
+) http.Handler {
 	mux := http.NewServeMux()
 
 	authMiddleware := auth.NewMiddleware(jwtSecret)
@@ -26,6 +30,7 @@ func NewRouter(handler *Handler, movieHandler *movies.Handler, jwtSecret string)
 	mux.Handle("DELETE /movies/{id}", authMiddleware(http.HandlerFunc(movieHandler.Delete)))
 	mux.Handle("PATCH /movies/{id}/watched", authMiddleware(http.HandlerFunc(movieHandler.MakeWatched)))
 	mux.Handle("PATCH /movies/{id}/unwatched", authMiddleware(http.HandlerFunc(movieHandler.MakeUnwatched)))
+	mux.HandleFunc("PATCH /internal/movies/{id}/metadata", handler.UpdateMetadata)
 
 	return mux
 }

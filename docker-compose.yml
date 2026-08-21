@@ -279,6 +279,27 @@ services:
 
     restart: unless-stopped
 
+  enrichment-app:
+    build:
+      context: ./services/enrichment
+      dockerfile: Dockerfile
+
+    container_name: enrichment-app
+
+    environment:
+      ENRICHMENT_KAFKA_BROKER: kafka:19092
+      ENRICHMENT_KAFKA_TOPIC: movie.events
+      ENRICHMENT_KAFKA_GROUP: movie-enrichment
+      ENRICHMENT_LIBRARY_URL: http://library-app:8081
+
+      MOVIE_API_KEY: ${MOVIE_API_KEY}
+
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
 
 volumes:
   kafka_data:

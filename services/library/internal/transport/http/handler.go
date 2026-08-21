@@ -2,6 +2,9 @@ package httptransport
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"movie-platform/library/internal/movies"
 	"movie-platform/library/internal/transport/http/response"
 	"net/http"
 	"time"
@@ -10,12 +13,17 @@ import (
 )
 
 type Handler struct {
-	db *pgxpool.Pool
+	db           *pgxpool.Pool
+	movieService *movies.Service
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
+func NewHandler(
+	db *pgxpool.Pool,
+	movieService *movies.Service,
+) *Handler {
 	return &Handler{
-		db: db,
+		db:           db,
+		movieService: movieService,
 	}
 }
 
@@ -70,4 +78,69 @@ func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 		Status:  "ok",
 		Service: "library",
 	})
+}
+
+type UpdateMetadataRequest struct {
+	UserID           string   `json:"user_id"`
+	ExternalID       string   `json:"external_id"`
+	MetadataProvider string   `json:"metadata_provider"`
+	OriginalTitle    string   `json:"original_title"`
+	Description      string   `json:"description"`
+	ReleaseYear      int      `json:"release_year"`
+	PosterURL        string   `json:"poster_url"`
+	RuntimeMinutes   *int     `json:"runtime_minutes"`
+	Genres           []string `json:"genres"`
+}
+
+func (handler *Handler) UpdateMetadata(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	movieID := r.PathValue("id")
+
+	var request UpdateMetadataRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(
+			w,
+			"invalid request body",
+			http.StatusBadRequest,
+		)
+		return
+	}
+
+	err := handler.movieService.UpdateMetadata(
+		r.Context(),
+		movies.UpdateMetadataServiceParams{
+			ID:               movieID,
+			UserID:           request.UserID,
+			ExternalID:       request.ExternalID,
+			MetadataProvider: request.MetadataProvider,
+			OriginalTitle:    request.OriginalTitle,
+			Description:      request.Description,
+			ReleaseYear:      request.ReleaseYear,
+			PosterURL:        request.PosterURL,
+			RuntimeMinutes:   request.RuntimeMinutes,
+			Genres:           request.Genres,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, movies.ErrMovieNotFound) {
+			http.Error(
+				w,
+				"movie not found",
+				http.StatusNotFound,
+			)
+			return
+		}
+
+		http.Error(
+			w,
+			"internal server error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
