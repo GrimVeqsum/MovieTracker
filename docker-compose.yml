@@ -286,13 +286,14 @@ services:
 
     container_name: enrichment-app
 
+    env_file:
+      - ./services/enrichment/.env
+
     environment:
       ENRICHMENT_KAFKA_BROKER: kafka:19092
       ENRICHMENT_KAFKA_TOPIC: movie.events
       ENRICHMENT_KAFKA_GROUP: movie-enrichment
       ENRICHMENT_LIBRARY_URL: http://library-app:8081
-
-      MOVIE_API_KEY: ${MOVIE_API_KEY}
 
     depends_on:
       kafka-init:
@@ -300,7 +301,28 @@ services:
 
     restart: unless-stopped
 
+  telegram-app:
+    build:
+      context: ./services/telegram
+      dockerfile: Dockerfile
 
+    container_name: telegram-app
+
+    env_file:
+      - ./services/telegram/.env
+
+    environment:
+      TELEGRAM_AUTH_URL: http://auth-app:8082
+      TELEGRAM_LIBRARY_URL: http://library-app:8081
+
+    depends_on:
+      auth-app:
+        condition: service_started
+
+      library-app:
+        condition: service_started
+
+    restart: unless-stopped
 volumes:
   kafka_data:
   library_postgres_data:
