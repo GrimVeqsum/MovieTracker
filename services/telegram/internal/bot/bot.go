@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"movie-platform/telegram/internal/backend"
 	"movie-platform/telegram/internal/telegram"
 )
 
@@ -17,6 +18,49 @@ type BackendClient interface {
 
 	LibraryReady(
 		ctx context.Context,
+	) error
+
+	LinkTelegram(
+		ctx context.Context,
+		code string,
+		telegramUserID int64,
+	) error
+
+	GetMovies(
+		ctx context.Context,
+		telegramUserID int64,
+	) ([]backend.Movie, error)
+
+	GetRandomMovie(
+		ctx context.Context,
+		telegramUserID int64,
+	) (*backend.Movie, error)
+
+	AddMovie(
+		ctx context.Context,
+		telegramUserID int64,
+		title string,
+		releaseYear *int,
+	) (*backend.Movie, error)
+
+	MakeWatched(
+		ctx context.Context,
+		telegramUserID int64,
+		movieID string,
+		rating int,
+		review *string,
+	) (*backend.Movie, error)
+
+	MakeUnwatched(
+		ctx context.Context,
+		telegramUserID int64,
+		movieID string,
+	) (*backend.Movie, error)
+
+	DeleteMovie(
+		ctx context.Context,
+		telegramUserID int64,
+		movieID string,
 	) error
 }
 
@@ -99,9 +143,10 @@ func (bot *Bot) handleMessage(
 	ctx context.Context,
 	message *telegram.Message,
 ) error {
-	text := strings.TrimSpace(
-		message.Text,
-	)
+	text :=
+		strings.TrimSpace(
+			message.Text,
+		)
 
 	if text == "" {
 		return nil
@@ -113,27 +158,46 @@ func (bot *Bot) handleMessage(
 		text,
 	)
 
-	switch text {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return nil
+	}
+
+	command :=
+		strings.ToLower(
+			fields[0],
+		)
+
+	if index := strings.Index(
+		command,
+		"@",
+	); index >= 0 {
+		command = command[:index]
+	}
+
+	switch command {
 	case "/start":
-		return bot.telegramClient.SendMessage(
+		return bot.handleStart(
 			ctx,
-			message.Chat.ID,
-			"MovieTracker Bot запущен.\n\n"+
-				"Команды:\n"+
-				"/ping — проверить Telegram bot\n"+
-				"/auth — проверить auth-service\n"+
-				"/library — проверить library-service\n"+
-				"/status — проверить backend",
+			message,
+			fields,
 		)
 
 	case "/help":
 		return bot.telegramClient.SendMessage(
 			ctx,
 			message.Chat.ID,
-			"Команды:\n"+
-				"/ping\n"+
-				"/auth\n"+
-				"/library\n"+
+			"Команды:\n\n"+
+				"/add Интерстеллар\n"+
+				"/add Интерстеллар | 2014\n\n"+
+				"/movies\n"+
+				"/random\n\n"+
+				"/watched 1 9\n"+
+				"/watched 1 9 | Отличный фильм\n"+
+				"/unwatched 1\n"+
+				"/delete 1\n\n"+
+				"Номер фильма берётся из /movies.\n\n"+
+				"/link CODE\n"+
 				"/status",
 		)
 
@@ -162,6 +226,53 @@ func (bot *Bot) handleMessage(
 			message.Chat.ID,
 		)
 
+	case "/link":
+		return bot.handleLink(
+			ctx,
+			message,
+			fields,
+		)
+
+	case "/movies":
+		return bot.handleMovies(
+			ctx,
+			message,
+		)
+
+	case "/random":
+		return bot.handleRandom(
+			ctx,
+			message,
+		)
+
+	case "/add":
+		return bot.handleAdd(
+			ctx,
+			message,
+			text,
+		)
+
+	case "/watched":
+		return bot.handleWatched(
+			ctx,
+			message,
+			text,
+		)
+
+	case "/unwatched":
+		return bot.handleUnwatched(
+			ctx,
+			message,
+			text,
+		)
+
+	case "/delete":
+		return bot.handleDelete(
+			ctx,
+			message,
+			text,
+		)
+
 	default:
 		return bot.telegramClient.SendMessage(
 			ctx,
@@ -169,102 +280,4 @@ func (bot *Bot) handleMessage(
 			"Неизвестная команда. Используй /help.",
 		)
 	}
-}
-
-func (bot *Bot) handleAuthStatus(
-	ctx context.Context,
-	chatID int64,
-) error {
-	if err := bot.backendClient.AuthReady(
-		ctx,
-	); err != nil {
-		log.Printf(
-			"auth-service unavailable: %v",
-			err,
-		)
-
-		return bot.telegramClient.SendMessage(
-			ctx,
-			chatID,
-			"auth-service: unavailable",
-		)
-	}
-
-	return bot.telegramClient.SendMessage(
-		ctx,
-		chatID,
-		"auth-service: ready",
-	)
-}
-
-func (bot *Bot) handleLibraryStatus(
-	ctx context.Context,
-	chatID int64,
-) error {
-	if err := bot.backendClient.LibraryReady(
-		ctx,
-	); err != nil {
-		log.Printf(
-			"library-service unavailable: %v",
-			err,
-		)
-
-		return bot.telegramClient.SendMessage(
-			ctx,
-			chatID,
-			"library-service: unavailable",
-		)
-	}
-
-	return bot.telegramClient.SendMessage(
-		ctx,
-		chatID,
-		"library-service: ready",
-	)
-}
-
-func (bot *Bot) handleBackendStatus(
-	ctx context.Context,
-	chatID int64,
-) error {
-	authErr :=
-		bot.backendClient.AuthReady(ctx)
-
-	libraryErr :=
-		bot.backendClient.LibraryReady(ctx)
-
-	authStatus := "ready"
-	libraryStatus := "ready"
-
-	if authErr != nil {
-		authStatus = "unavailable"
-
-		log.Printf(
-			"auth-service unavailable: %v",
-			authErr,
-		)
-	}
-
-	if libraryErr != nil {
-		libraryStatus = "unavailable"
-
-		log.Printf(
-			"library-service unavailable: %v",
-			libraryErr,
-		)
-	}
-
-	message :=
-		"MovieTracker backend:\n" +
-			"auth-service: " +
-			authStatus +
-			"\n" +
-			"library-service: " +
-			libraryStatus
-
-	return bot.telegramClient.SendMessage(
-		ctx,
-		chatID,
-		message,
-	)
 }

@@ -3,12 +3,14 @@ package config
 import (
 	"errors"
 	"os"
+	"strings"
 )
 
 type Config struct {
-	HTTPPort          string
-	AuthServiceURL    string
-	LibraryServiceURL string
+	HTTPPort            string
+	AuthServiceURL      string
+	LibraryServiceURL   string
+	TelegramBotUsername string
 }
 
 func Load() (Config, error) {
@@ -27,9 +29,25 @@ func Load() (Config, error) {
 		return Config{}, errors.New("LIBRARY_SERVICE_URL is empty")
 	}
 
+	telegramBotUsername := strings.TrimSpace(
+		os.Getenv("TELEGRAM_BOT_USERNAME"),
+	)
+
+	if telegramBotUsername == "" {
+		return Config{}, errors.New(
+			"TELEGRAM_BOT_USERNAME is empty",
+		)
+	}
+
+	telegramBotUsername = strings.TrimPrefix(
+		telegramBotUsername,
+		"@",
+	)
+
 	return Config{
-		HTTPPort:          httpPort,
-		AuthServiceURL:    authServiceURL,
-		LibraryServiceURL: libraryServiceURL,
+		HTTPPort:            httpPort,
+		AuthServiceURL:      authServiceURL,
+		LibraryServiceURL:   libraryServiceURL,
+		TelegramBotUsername: telegramBotUsername,
 	}, nil
 }

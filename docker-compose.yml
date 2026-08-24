@@ -14,6 +14,7 @@ services:
         chown -R 1000:1000 /kafka-data
         chmod -R 750 /kafka-data
 
+
   kafka:
     image: apache/kafka:4.3.1
     hostname: kafka
@@ -28,24 +29,18 @@ services:
 
     environment:
       CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
-
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: "broker,controller"
 
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
-
       KAFKA_LISTENERS: "PLAINTEXT://:19092,CONTROLLER://:9093,PLAINTEXT_HOST://:9092"
-
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092"
 
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
-
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
 
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
@@ -53,9 +48,7 @@ services:
       KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
 
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
 
     volumes:
@@ -73,6 +66,7 @@ services:
       start_period: 10s
 
     restart: unless-stopped
+
 
   kafka-init:
     image: apache/kafka:4.3.1
@@ -104,6 +98,7 @@ services:
           --topic movie.events
 
         echo "Kafka topics are ready"
+
 
   library-postgres:
     image: postgres:18
@@ -165,10 +160,14 @@ services:
     environment:
       LIBRARY_HTTP_PORT: 8081
       LIBRARY_DATABASE_URL: postgres://library_user:library_password@library-postgres:5432/library_db?sslmode=disable
-      LIBRARY_JWT_SECRET: dev_secret_change_me
+
+      LIBRARY_JWT_SECRET_FILE: /run/secrets/jwt_secret
 
       LIBRARY_KAFKA_BROKER: kafka:19092
       LIBRARY_KAFKA_TOPIC: movie.events
+
+    secrets:
+      - jwt_secret
 
     ports:
       - "8081:8081"
@@ -243,7 +242,13 @@ services:
     environment:
       AUTH_HTTP_PORT: 8082
       AUTH_DATABASE_URL: postgres://auth_user:auth_password@auth-postgres:5432/auth_db?sslmode=disable
-      AUTH_JWT_SECRET: dev_secret_change_me
+
+      AUTH_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      AUTH_TELEGRAM_SERVICE_SECRET_FILE: /run/secrets/telegram_auth_service_token
+
+    secrets:
+      - jwt_secret
+      - telegram_auth_service_token
 
     ports:
       - "8082:8082"
@@ -267,6 +272,8 @@ services:
       AUTH_SERVICE_URL: http://auth-app:8082
       LIBRARY_SERVICE_URL: http://library-app:8081
 
+      TELEGRAM_BOT_USERNAME: movie_platform_bot
+
     ports:
       - "8080:8080"
 
@@ -279,27 +286,31 @@ services:
 
     restart: unless-stopped
 
+
   enrichment-app:
-    build:
-      context: ./services/enrichment
-      dockerfile: Dockerfile
+      build:
+        context: ./services/enrichment
+        dockerfile: Dockerfile
 
-    container_name: enrichment-app
+      container_name: enrichment-app
 
-    env_file:
-      - ./services/enrichment/.env
+      environment:
+        ENRICHMENT_KAFKA_BROKER: kafka:19092
+        ENRICHMENT_KAFKA_TOPIC: movie.events
+        ENRICHMENT_KAFKA_GROUP: movie-enrichment
+        ENRICHMENT_LIBRARY_URL: http://library-app:8081
 
-    environment:
-      ENRICHMENT_KAFKA_BROKER: kafka:19092
-      ENRICHMENT_KAFKA_TOPIC: movie.events
-      ENRICHMENT_KAFKA_GROUP: movie-enrichment
-      ENRICHMENT_LIBRARY_URL: http://library-app:8081
+        MOVIE_API_KEY_FILE: /run/secrets/movie_api_key
 
-    depends_on:
-      kafka-init:
-        condition: service_completed_successfully
+      secrets:
+        - movie_api_key
 
-    restart: unless-stopped
+      depends_on:
+        kafka-init:
+          condition: service_completed_successfully
+
+      restart: unless-stopped
+
 
   telegram-app:
     build:
@@ -308,12 +319,16 @@ services:
 
     container_name: telegram-app
 
-    env_file:
-      - ./services/telegram/.env
-
     environment:
       TELEGRAM_AUTH_URL: http://auth-app:8082
       TELEGRAM_LIBRARY_URL: http://library-app:8081
+
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      TELEGRAM_AUTH_SERVICE_SECRET_FILE: /run/secrets/telegram_auth_service_token
+
+    secrets:
+      - telegram_bot_token
+      - telegram_auth_service_token
 
     depends_on:
       auth-app:
@@ -323,7 +338,23 @@ services:
         condition: service_started
 
     restart: unless-stopped
+
+
 volumes:
   kafka_data:
   library_postgres_data:
   auth_postgres_data:
+
+
+secrets:
+  jwt_secret:
+    file: ./.secrets/jwt_secret
+
+  telegram_bot_token:
+    file: ./.secrets/telegram_bot_token
+
+  telegram_auth_service_token:
+    file: ./.secrets/telegram_auth_service_token
+
+  movie_api_key:
+    file: ./.secrets/movie_api_key

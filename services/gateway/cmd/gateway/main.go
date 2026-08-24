@@ -16,49 +16,104 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Println("config error:", err)
+		log.Println(
+			"config error:",
+			err,
+		)
 		return
 	}
 
-	handler := httptransport.NewHandler(cfg.AuthServiceURL, cfg.LibraryServiceURL)
+	handler :=
+		httptransport.NewHandler(
+			cfg.AuthServiceURL,
+			cfg.LibraryServiceURL,
+		)
 
-	authProxy := httptransport.NewReverseProxy(cfg.AuthServiceURL)
-	libraryProxy := httptransport.NewReverseProxy(cfg.LibraryServiceURL)
+	webHandler :=
+		httptransport.NewWebHandler(
+			cfg.TelegramBotUsername,
+		)
 
-	router := httptransport.NewRouter(handler, authProxy, libraryProxy)
+	authProxy :=
+		httptransport.NewReverseProxy(
+			cfg.AuthServiceURL,
+		)
 
-	addr := ":" + cfg.HTTPPort
+	libraryProxy :=
+		httptransport.NewReverseProxy(
+			cfg.LibraryServiceURL,
+		)
 
-	server := &http.Server{
-		Addr:    addr,
-		Handler: router,
-	}
+	router :=
+		httptransport.NewRouter(
+			handler,
+			webHandler,
+			cfg.TelegramBotUsername,
+			authProxy,
+			libraryProxy,
+		)
 
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
+	addr :=
+		":" + cfg.HTTPPort
+
+	server :=
+		&http.Server{
+			Addr:    addr,
+			Handler: router,
+		}
+
+	ctx, stop :=
+		signal.NotifyContext(
+			context.Background(),
+			os.Interrupt,
+			syscall.SIGTERM,
+		)
+
 	defer stop()
 
 	go func() {
-		log.Println("gateway service started on", addr)
+		log.Println(
+			"gateway service started on",
+			addr,
+		)
 
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("server error: %v", err)
+		if err :=
+			server.ListenAndServe(); err != nil &&
+			err != http.ErrServerClosed {
+
+			log.Printf(
+				"server error: %v",
+				err,
+			)
 		}
 	}()
 
 	<-ctx.Done()
 
-	log.Println("shutdown signal received")
+	log.Println(
+		"shutdown signal received",
+	)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel :=
+		context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+
 	defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("server shutdown error: %v", err)
+	if err :=
+		server.Shutdown(
+			shutdownCtx,
+		); err != nil {
+
+		log.Printf(
+			"server shutdown error: %v",
+			err,
+		)
 	}
 
-	log.Println("gateway service stopped")
+	log.Println(
+		"gateway service stopped",
+	)
 }

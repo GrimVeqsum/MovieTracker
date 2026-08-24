@@ -2,7 +2,9 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -41,14 +43,12 @@ func Load() (Config, error) {
 		kafkaGroup = "movie-enrichment"
 	}
 
-	movieAPIKey := os.Getenv(
+	movieAPIKey, err := loadSecret(
 		"MOVIE_API_KEY",
+		"MOVIE_API_KEY_FILE",
 	)
-	if movieAPIKey == "" {
-		return Config{},
-			errors.New(
-				"MOVIE_API_KEY is empty",
-			)
+	if err != nil {
+		return Config{}, err
 	}
 
 	libraryURL := os.Getenv(
@@ -68,4 +68,52 @@ func Load() (Config, error) {
 		MovieAPIKey: movieAPIKey,
 		LibraryURL:  libraryURL,
 	}, nil
+}
+
+func loadSecret(
+	envName string,
+	fileEnvName string,
+) (string, error) {
+	if value := strings.TrimSpace(
+		os.Getenv(envName),
+	); value != "" {
+		return value, nil
+	}
+
+	filePath := strings.TrimSpace(
+		os.Getenv(fileEnvName),
+	)
+
+	if filePath == "" {
+		return "",
+			fmt.Errorf(
+				"%s or %s must be set",
+				envName,
+				fileEnvName,
+			)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "",
+			fmt.Errorf(
+				"read secret file %s: %w",
+				filePath,
+				err,
+			)
+	}
+
+	value := strings.TrimSpace(
+		string(data),
+	)
+
+	if value == "" {
+		return "",
+			fmt.Errorf(
+				"secret file %s is empty",
+				filePath,
+			)
+	}
+
+	return value, nil
 }

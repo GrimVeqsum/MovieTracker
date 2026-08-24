@@ -14,7 +14,9 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load()
+	cfg, err :=
+		config.Load()
+
 	if err != nil {
 		log.Printf(
 			"config error: %v",
@@ -32,6 +34,7 @@ func main() {
 		backend.NewClient(
 			cfg.AuthURL,
 			cfg.LibraryURL,
+			cfg.AuthServiceSecret,
 		)
 
 	ctx, stop :=
@@ -40,6 +43,7 @@ func main() {
 			os.Interrupt,
 			syscall.SIGTERM,
 		)
+
 	defer stop()
 
 	me, err :=
@@ -70,7 +74,9 @@ func main() {
 	)
 
 	if err :=
-		telegramBot.Run(ctx); err != nil {
+		telegramBot.Run(
+			ctx,
+		); err != nil {
 
 		log.Printf(
 			"telegram bot stopped with error: %v",
