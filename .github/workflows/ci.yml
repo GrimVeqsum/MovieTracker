@@ -58,3 +58,72 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+  infrastructure:
+    name: infrastructure
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate shell scripts
+        run: |
+          sh -n deploy/backup.sh
+          sh -n deploy/deploy.sh
+
+      - name: Create CI secrets
+        run: |
+          mkdir -p .secrets
+
+          for secret in \
+            auth_db_password \
+            library_db_password \
+            jwt_secret \
+            telegram_bot_token \
+            telegram_auth_service_token \
+            movie_api_key \
+            enrichment_library_service_token
+          do
+            printf 'ci-placeholder-value\n' > ".secrets/$secret"
+          done
+
+      - name: Validate development Compose
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.dev.yml \
+            config > /dev/null
+
+      - name: Validate production Compose
+        env:
+          MOVIETRACKER_DOMAIN: example.com
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.prod.yml \
+            config > /dev/null
+
+      - name: Build Docker images
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.dev.yml \
+            build \
+            auth-app \
+            library-app \
+            gateway-app \
+            enrichment-app \
+            telegram-app
+
+      - name: Validate Caddy configuration
+        run: |
+          docker run \
+            --rm \
+            --entrypoint caddy \
+            -e MOVIETRACKER_DOMAIN=example.com \
+            -v "${{ github.workspace }}/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.4-alpine \
+            validate \
+            --config /etc/caddy/Caddyfile

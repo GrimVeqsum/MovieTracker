@@ -4,7 +4,7 @@
 
 MovieTracker — сервис для ведения личной библиотеки фильмов.
 
-Пользователь может добавлять фильмы, отмечать их просмотренными, ставить оценки, оставлять отзывы и получать случайный фильм из списка непросмотренных. После добавления информация о фильме дополняется асинхронно. Библиотекой также можно управлять через Telegram-бота.
+Можно добавлять фильмы, отмечать их просмотренными, ставить оценки, оставлять отзывы и выбирать случайный фильм из непросмотренных. Метаданные фильма загружаются асинхронно после создания. Библиотекой также можно управлять через Telegram-бота.
 
 ## Архитектура
 
@@ -33,22 +33,22 @@ MovieTracker — сервис для ведения личной библиот�
                               │   Enrichment     │
                               └────────┬─────────┘
                                        │
-                              API метаданных фильмов
+                                  PoiskKino API
 
 Telegram API ◄────► Telegram Service ───► Auth / Library
 ```
 
 ### Сервисы
 
-- **Gateway** — единая публичная точка входа, маршрутизация запросов и ограничение частоты запросов.
-- **Auth** — регистрация, вход, JWT-токены, refresh-сессии и привязка Telegram.
-- **Library** — хранение фильмов пользователя, статусов просмотра, оценок, отзывов и метаданных.
-- **Enrichment** — обработка событий из Kafka и получение данных о фильмах из внешнего API.
+- **Gateway** — публичная точка входа и ограничение частоты запросов.
+- **Auth** — регистрация, вход, JWT, refresh-сессии и привязка Telegram.
+- **Library** — фильмы, статусы просмотра, оценки, отзывы и метаданные.
+- **Enrichment** — обработка событий Kafka и получение метаданных фильмов.
 - **Telegram** — управление библиотекой через Telegram Bot API.
 
-Auth и Library используют отдельные базы PostgreSQL.
+Auth и Library используют отдельные PostgreSQL-базы.
 
-При создании фильма Library сохраняет событие в transactional outbox. Событие публикуется в Kafka и обрабатывается Enrichment-сервисом. Необработанные после повторных попыток сообщения отправляются в DLQ.
+События создания фильмов записываются через transactional outbox и публикуются в Kafka. После обработки Enrichment обновляет данные фильма в Library. Для сообщений, которые не удалось обработать после повторных попыток, используется DLQ.
 
 ## Стек
 
@@ -57,13 +57,12 @@ Auth и Library используют отдельные базы PostgreSQL.
 - PostgreSQL
 - pgx
 - Apache Kafka
-- Docker
-- Docker Compose
+- Docker / Docker Compose
 - golang-migrate
-- JWT
-- bcrypt
+- JWT / bcrypt
 - Caddy
 - Telegram Bot API
+- PoiskKino API
 - Swagger / OpenAPI
 - GitHub Actions
 
@@ -95,7 +94,19 @@ Auth и Library используют отдельные базы PostgreSQL.
 └── enrichment_library_service_token
 ```
 
-Каждый файл содержит только значение соответствующего секрета.
+Назначение файлов:
+
+```text
+auth_db_password                    пароль базы Auth
+library_db_password                 пароль базы Library
+jwt_secret                          ключ подписи JWT
+telegram_bot_token                  токен Telegram-бота
+telegram_auth_service_token         ключ Telegram Service → Auth
+movie_api_key                       ключ PoiskKino API
+enrichment_library_service_token    ключ Enrichment → Library
+```
+
+Каждый файл должен содержать только значение секрета.
 
 Каталог `.secrets/` исключён из Git.
 
@@ -108,7 +119,7 @@ docker compose \
   up -d --build
 ```
 
-Проверить состояние контейнеров:
+Проверить контейнеры:
 
 ```bash
 docker compose \
@@ -117,7 +128,7 @@ docker compose \
   ps
 ```
 
-Gateway будет доступен по адресу:
+Gateway:
 
 ```text
 http://localhost:8080
@@ -138,9 +149,54 @@ docker compose \
   down
 ```
 
+## Проверка работы
+
+Зарегистрировать пользователя:
+
+```bash
+curl -X POST http://localhost:8080/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}'
+```
+
+Войти:
+
+```bash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}'
+```
+
+В ответе будет `access_token`.
+
+Добавить фильм:
+
+```bash
+curl -X POST http://localhost:8080/movies \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Inception","release_year":2010}'
+```
+
+Получить библиотеку:
+
+```bash
+curl http://localhost:8080/movies \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Получить случайный непросмотренный фильм:
+
+```bash
+curl http://localhost:8080/movies/random \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Метаданные добавленного фильма загружаются асинхронно, поэтому могут появиться через некоторое время после создания записи.
+
 ## API
 
-Основное API доступно через Gateway:
+Основные маршруты доступны через Gateway:
 
 ```text
 /auth/*
@@ -148,100 +204,68 @@ docker compose \
 /movies/*
 ```
 
-Основные возможности:
-
-- регистрация и вход;
-- обновление access-токена;
-- выход из аккаунта;
-- привязка Telegram;
-- добавление и удаление фильмов;
-- получение списка фильмов;
-- получение фильма по идентификатору;
-- выбор случайного непросмотренного фильма;
-- отметка фильма просмотренным или непросмотренным;
-- оценка и отзыв.
-
-Маршруты `/movies` требуют авторизации:
+Маршруты `/movies` требуют:
 
 ```text
 Authorization: Bearer <access_token>
 ```
 
-Служебные маршруты Auth и Library используются только для взаимодействия между сервисами и не публикуются через Gateway.
+Служебные маршруты Auth и Library используются только между сервисами и через Gateway не публикуются.
 
-## Локальная разработка
-
-В конфигурации для разработки наружу дополнительно открыты:
-
-```text
-Gateway   http://localhost:8080
-Library   http://localhost:8081
-Auth      http://localhost:8082
-```
-
-Swagger:
+В режиме разработки Swagger доступен по адресам:
 
 ```text
 http://localhost:8081/swagger/index.html
 http://localhost:8082/swagger/index.html
 ```
 
-Основной `docker-compose.yml` не публикует внутренние сервисы наружу. Дополнительные порты подключаются через `docker-compose.dev.yml`.
+## Telegram
+
+После привязки аккаунта библиотекой можно управлять через Telegram.
+
+Основные команды:
+
+```text
+/add НАЗВАНИЕ
+/movies
+/random
+/watched N RATING
+/unwatched N
+/delete N
+/link CODE
+/help
+```
+
+Код привязки создаётся через MovieTracker и передаётся боту командой:
+
+```text
+/link CODE
+```
 
 ## Авторизация
 
 После входа Auth выдаёт короткоживущий JWT access token.
 
-Refresh token хранится в cookie и используется для получения нового access token. При обновлении refresh token заменяется новым, а при выходе соответствующая сессия отзывается.
+Refresh token хранится в HTTP-only cookie. При обновлении сессии refresh token заменяется новым. При выходе соответствующая refresh-сессия отзывается.
 
-Library проверяет JWT самостоятельно и использует идентификатор пользователя из токена для доступа только к его фильмам.
-
-## Обработка событий
-
-Создание фильма не требует ожидания внешнего API.
-
-Library записывает фильм и событие в одной транзакции PostgreSQL:
-
-```text
-Library
-   │
-   ├── movies
-   │
-   └── outbox
-          │
-          ▼
-        Kafka
-          │
-          ▼
-     Enrichment
-          │
-          ▼
-  API метаданных
-          │
-          ▼
-       Library
-```
-
-Это позволяет сохранить событие даже при временной недоступности Kafka.
-
-Повторная обработка одного события не приводит к повторному изменению уже обработанных метаданных.
+Library самостоятельно проверяет JWT и получает идентификатор пользователя из токена.
 
 ## Миграции
 
-Миграции Auth и Library выполняются автоматически перед запуском приложений.
-
-Используется `golang-migrate`.
-
-Миграции находятся в каталогах:
+Auth и Library имеют независимые миграции:
 
 ```text
 services/auth/migrations
 services/library/migrations
 ```
 
-## Рабочее окружение
+Используется `golang-migrate`.
 
-Для рабочего запуска используется:
+При развёртывании миграции выполняются перед запуском новой версии приложений.
+
+## Развёртывание
+
+Для рабочего окружения используются:
 
 ```text
 docker-compose.yml
@@ -254,64 +278,50 @@ docker-compose.prod.yml
 export MOVIETRACKER_DOMAIN=example.com
 ```
 
-Запуск:
+Развёртывание:
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prod.yml \
-  up -d --build
+./deploy/deploy.sh
 ```
 
-Caddy принимает HTTP/HTTPS-запросы и передаёт их в Gateway.
+Caddy принимает внешние HTTP/HTTPS-запросы и передаёт их в Gateway.
 
-Наружу публикуются только:
+Снаружи публикуются только:
 
 ```text
 80
 443
 ```
 
-PostgreSQL, Kafka, Auth, Library, Enrichment и Telegram-сервис остаются внутри сети Docker.
+PostgreSQL, Kafka и внутренние сервисы остаются внутри Docker-сети.
 
 ## Резервное копирование
 
-Скрипт резервного копирования:
+Скрипт:
 
 ```text
 deploy/backup.sh
 ```
 
-Он создаёт архивы обеих PostgreSQL-баз через `pg_dump`.
+создаёт резервные копии Auth и Library через `pg_dump`.
 
-Резервные копии сохраняются в:
+По умолчанию файлы сохраняются в:
 
 ```text
 backups/
 ```
 
-По умолчанию файлы старше 7 дней удаляются.
+и удаляются через 7 дней.
 
 Каталог `backups/` исключён из Git.
 
+Для рабочего окружения рекомендуется дополнительно хранить копии резервных файлов вне сервера.
+
 ## CI
 
-GitHub Actions запускается при:
+GitHub Actions запускается при push и pull request в `main`.
 
-- push в `main`;
-- pull request в `main`.
-
-Каждый Go-сервис проверяется отдельно:
-
-```text
-auth
-library
-gateway
-enrichment
-telegram
-```
-
-Для каждого выполняются:
+Для каждого Go-сервиса выполняются:
 
 ```text
 go mod download
@@ -321,21 +331,4 @@ go test ./...
 go build ./...
 ```
 
-## Проверка работы
-
-После запуска Gateway доступен по адресу:
-
-````text
-http://localhost:8080
-
-## Назначение секретов:
-
-```text
-auth_db_password                    пароль базы Auth
-library_db_password                 пароль базы Library
-jwt_secret                          ключ подписи JWT
-telegram_bot_token                  токен Telegram-бота
-telegram_auth_service_token         ключ Telegram Service → Auth
-movie_api_key                       ключ API метаданных фильмов
-enrichment_library_service_token    ключ Enrichment → Library
-````
+Дополнительно проверяются Docker Compose, Dockerfile, Caddyfile и shell-скрипты развёртывания.
