@@ -17,10 +17,14 @@ type webPageData struct {
 func NewWebHandler(
 	telegramBotUsername string,
 ) *WebHandler {
-	page := template.Must(
-		template.New("index").
-			Parse(indexHTML),
-	)
+	page :=
+		template.Must(
+			template.New(
+				"index",
+			).Parse(
+				indexHTML,
+			),
+		)
 
 	return &WebHandler{
 		page: page,
@@ -37,12 +41,13 @@ func (handler *WebHandler) Index(
 		"text/html; charset=utf-8",
 	)
 
-	err := handler.page.Execute(
-		w,
-		webPageData{
-			TelegramBotUsername: telegramBotUsername,
-		},
-	)
+	err :=
+		handler.page.Execute(
+			w,
+			webPageData{
+				TelegramBotUsername: telegramBotUsername,
+			},
+		)
 
 	if err != nil {
 		log.Printf(
@@ -506,6 +511,13 @@ const indexHTML = `
         {{ printf "%q" .TelegramBotUsername }};
 
 
+    const accessTokenKey =
+        "movietracker_access_token";
+
+    const emailKey =
+        "movietracker_email";
+
+
     const authSection =
         document.getElementById(
             "authSection"
@@ -660,7 +672,17 @@ const indexHTML = `
 
     function getToken() {
         return sessionStorage.getItem(
-            "movietracker_access_token"
+            accessTokenKey
+        );
+    }
+
+
+    function saveAccessToken(
+        token
+    ) {
+        sessionStorage.setItem(
+            accessTokenKey,
+            token
         );
     }
 
@@ -669,13 +691,12 @@ const indexHTML = `
         token,
         email
     ) {
-        sessionStorage.setItem(
-            "movietracker_access_token",
+        saveAccessToken(
             token
         );
 
         sessionStorage.setItem(
-            "movietracker_email",
+            emailKey,
             email
         );
     }
@@ -683,23 +704,28 @@ const indexHTML = `
 
     function clearSession() {
         sessionStorage.removeItem(
-            "movietracker_access_token"
+            accessTokenKey
         );
 
         sessionStorage.removeItem(
-            "movietracker_email"
+            emailKey
         );
     }
 
 
     async function requestJSON(
         url,
-        options
+        options = {}
     ) {
         const response =
             await fetch(
                 url,
-                options
+                {
+                    ...options,
+
+                    credentials:
+                        "same-origin"
+                }
             );
 
         let data = null;
@@ -717,12 +743,134 @@ const indexHTML = `
                 "HTTP " +
                 response.status;
 
-            throw new Error(
-                message
-            );
+            const error =
+                new Error(
+                    message
+                );
+
+            error.status =
+                response.status;
+
+            throw error;
         }
 
         return data;
+    }
+
+
+    async function refreshAccessToken() {
+        try {
+
+            const data =
+                await requestJSON(
+                    "/auth/refresh",
+                    {
+                        method:
+                            "POST"
+                    }
+                );
+
+            if (!data?.access_token) {
+                throw new Error(
+                    "Auth service did not return access token"
+                );
+            }
+
+            saveAccessToken(
+                data.access_token
+            );
+
+            return data.access_token;
+
+        } catch (_) {
+
+            clearSession();
+
+            return null;
+        }
+    }
+
+
+    function sessionExpiredError() {
+        const error =
+            new Error(
+                "Сессия истекла. Войди снова."
+            );
+
+        error.sessionExpired =
+            true;
+
+        return error;
+    }
+
+
+    async function authorizedRequestJSON(
+        url,
+        options = {}
+    ) {
+        let token =
+            getToken();
+
+        if (!token) {
+            token =
+                await refreshAccessToken();
+
+            if (!token) {
+                throw sessionExpiredError();
+            }
+        }
+
+        function optionsWithToken(
+            accessToken
+        ) {
+            const headers =
+                new Headers(
+                    options.headers || {}
+                );
+
+            headers.set(
+                "Authorization",
+                "Bearer " +
+                    accessToken
+            );
+
+            return {
+                ...options,
+                headers
+            };
+        }
+
+        try {
+
+            return await requestJSON(
+                url,
+                optionsWithToken(
+                    token
+                )
+            );
+
+        } catch (error) {
+
+            if (
+                error.status !== 401
+            ) {
+                throw error;
+            }
+        }
+
+        token =
+            await refreshAccessToken();
+
+        if (!token) {
+            throw sessionExpiredError();
+        }
+
+        return requestJSON(
+            url,
+            optionsWithToken(
+                token
+            )
+        );
     }
 
 
@@ -750,7 +898,7 @@ const indexHTML = `
                 }
             );
 
-        if (!data.access_token) {
+        if (!data?.access_token) {
             throw new Error(
                 "Auth service did not return access token"
             );
@@ -917,37 +1065,21 @@ const indexHTML = `
             telegramResult.style.display =
                 "none";
 
-            const token =
-                getToken();
-
-            if (!token) {
-                clearSession();
-                showAuth();
-
-                return;
-            }
-
             connectTelegramButton.disabled =
                 true;
 
             try {
 
                 const data =
-                    await requestJSON(
+                    await authorizedRequestJSON(
                         "/auth/telegram/link-code",
                         {
                             method:
-                                "POST",
-
-                            headers: {
-                                "Authorization":
-                                    "Bearer " +
-                                    token
-                            }
+                                "POST"
                         }
                     );
 
-                if (!data.code) {
+                if (!data?.code) {
                     throw new Error(
                         "Auth service did not return link code"
                     );
@@ -984,12 +1116,17 @@ const indexHTML = `
             } catch (error) {
 
                 if (
-                    error.message
-                        .toLowerCase()
-                        .includes("token")
+                    error.sessionExpired
                 ) {
                     clearSession();
+
                     showAuth();
+
+                    setMessage(
+                        authMessage,
+                        error.message,
+                        "error"
+                    );
 
                     return;
                 }
@@ -1012,33 +1149,79 @@ const indexHTML = `
     logoutButton.addEventListener(
         "click",
 
-        function() {
-            clearSession();
+        async function() {
 
-            showAuth();
+            logoutButton.disabled =
+                true;
+
+            clearMessage(
+                accountMessage
+            );
+
+            let logoutError = null;
+
+            try {
+
+                await requestJSON(
+                    "/auth/logout",
+                    {
+                        method:
+                            "POST"
+                    }
+                );
+
+            } catch (error) {
+
+                logoutError =
+                    error;
+
+            } finally {
+
+                clearSession();
+
+                showAuth();
+
+                logoutButton.disabled =
+                    false;
+            }
+
+            if (logoutError) {
+                setMessage(
+                    authMessage,
+                    "Локальная сессия завершена, но сервер не подтвердил выход: " +
+                        logoutError.message,
+                    "error"
+                );
+            }
         }
     );
 
 
-    const existingToken =
-        getToken();
+    async function restorePage() {
+        const existingToken =
+            getToken();
 
-    const existingEmail =
-        sessionStorage.getItem(
-            "movietracker_email"
-        );
+        const existingEmail =
+            sessionStorage.getItem(
+                emailKey
+            );
 
-
-    if (
-        existingToken &&
-        existingEmail
-    ) {
-        showAccount(
+        if (
+            existingToken &&
             existingEmail
-        );
-    } else {
+        ) {
+            showAccount(
+                existingEmail
+            );
+
+            return;
+        }
+
         showAuth();
     }
+
+
+    restorePage();
 
 </script>
 

@@ -66,7 +66,8 @@ type BackendClient interface {
 
 type Bot struct {
 	telegramClient *telegram.Client
-	backendClient  BackendClient
+
+	backendClient BackendClient
 }
 
 func New(
@@ -75,7 +76,8 @@ func New(
 ) *Bot {
 	return &Bot{
 		telegramClient: telegramClient,
-		backendClient:  backendClient,
+
+		backendClient: backendClient,
 	}
 }
 
@@ -135,7 +137,8 @@ func (bot *Bot) Run(
 				); err != nil {
 
 				log.Printf(
-					"handle message error: %v",
+					"handle telegram message error: chat_id=%d err=%v",
+					update.Message.Chat.ID,
 					err,
 				)
 			}
@@ -156,14 +159,10 @@ func (bot *Bot) handleMessage(
 		return nil
 	}
 
-	log.Printf(
-		"telegram message: chat_id=%d text=%q",
-		message.Chat.ID,
-		text,
-	)
-
 	fields :=
-		strings.Fields(text)
+		strings.Fields(
+			text,
+		)
 
 	if len(fields) == 0 {
 		return nil
@@ -183,6 +182,17 @@ func (bot *Bot) handleMessage(
 		command =
 			command[:index]
 	}
+
+	// В production logs оставляем только тип команды.
+	//
+	// Не логируем полный message.Text:
+	// там могут быть link-code, названия фильмов,
+	// отзывы и другие пользовательские данные.
+	log.Printf(
+		"telegram command: chat_id=%d command=%q",
+		message.Chat.ID,
+		command,
+	)
 
 	switch command {
 	case "/start":

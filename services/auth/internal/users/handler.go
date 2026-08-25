@@ -185,6 +185,8 @@ func (handler *Handler) Login(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
+	disableAuthCaching(w)
+
 	var request loginRequest
 
 	if err :=
@@ -268,6 +270,8 @@ func (handler *Handler) Refresh(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
+	disableAuthCaching(w)
+
 	refreshToken, ok :=
 		readRefreshCookie(
 			r,
@@ -340,6 +344,8 @@ func (handler *Handler) Logout(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
+	disableAuthCaching(w)
+
 	refreshToken, ok :=
 		readRefreshCookie(
 			r,
@@ -501,4 +507,18 @@ func decodeAuthJSON(
 	}
 
 	return nil
+}
+
+func disableAuthCaching(
+	w http.ResponseWriter,
+) {
+	w.Header().Set(
+		"Cache-Control",
+		"no-store",
+	)
+
+	w.Header().Set(
+		"Pragma",
+		"no-cache",
+	)
 }

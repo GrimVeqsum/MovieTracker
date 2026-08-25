@@ -1,4 +1,73 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+
 services:
+  kafka:
+    logging: *default-logging
+
+
+  library-postgres:
+    logging: *default-logging
+
+
+  library-app:
+    logging: *default-logging
+
+
+  auth-postgres:
+    logging: *default-logging
+
+
+  auth-app:
+    environment:
+      AUTH_COOKIE_SECURE: "true"
+
+    logging: *default-logging
+
+
   gateway-app:
+    logging: *default-logging
+
+
+  enrichment-app:
+    logging: *default-logging
+
+
+  telegram-app:
+    logging: *default-logging
+
+
+  caddy:
+    image: caddy:2.11.4-alpine
+
+    container_name: movietracker-caddy
+
+    environment:
+      MOVIETRACKER_DOMAIN: ${MOVIETRACKER_DOMAIN:?MOVIETRACKER_DOMAIN is required}
+
     ports:
-      - "8080:8080"
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+    depends_on:
+      gateway-app:
+        condition: service_healthy
+
+    logging: *default-logging
+
+    restart: unless-stopped
+
+
+volumes:
+  caddy_data:
+  caddy_config:

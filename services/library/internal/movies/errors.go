@@ -1,10 +1,29 @@
 package movies
 
-import (
-	"errors"
-)
+import "errors"
 
-var ErrMovieAlreadyExists = errors.New("movie already exists")
-var ErrMovieNotFound = errors.New("movie not found")
-var ErrMovieTitleRequired = errors.New("movie title is required")
-var ErrRatingIsOutOfRange = errors.New("movie rating must be in range 1-10")
+var (
+	ErrMovieAlreadyExists = errors.New(
+		"movie already exists",
+	)
+
+	ErrMovieNotFound = errors.New(
+		"movie not found",
+	)
+
+	ErrMovieTitleRequired = errors.New(
+		"movie title is required",
+	)
+
+	ErrMovieTitleTooLong = errors.New(
+		"movie title is too long",
+	)
+
+	ErrRatingIsOutOfRange = errors.New(
+		"movie rating must be in range 1-10",
+	)
+
+	ErrMovieReviewTooLong = errors.New(
+		"movie review is too long",
+	)
+)

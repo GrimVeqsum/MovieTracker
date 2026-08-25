@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -10,19 +12,30 @@ import (
 const (
 	defaultJWTIssuer   = "movietracker-auth"
 	defaultJWTAudience = "movietracker-api"
+
 	minJWTSecretLength = 32
+
+	defaultDatabaseHost    = "library-postgres"
+	defaultDatabasePort    = "5432"
+	defaultDatabaseUser    = "library_user"
+	defaultDatabaseName    = "library_db"
+	defaultDatabaseSSLMode = "disable"
 )
 
 type Config struct {
-	HTTPPort    string
+	HTTPPort string
+
 	DatabaseURL string
 
-	JWTSecret   string
-	JWTIssuer   string
+	JWTSecret string
+
+	JWTIssuer string
+
 	JWTAudience string
 
 	KafkaBroker string
-	KafkaTopic  string
+
+	KafkaTopic string
 
 	EnrichmentServiceSecret string
 }
@@ -39,18 +52,11 @@ func Load() (Config, error) {
 		httpPort = "8081"
 	}
 
-	databaseURL :=
-		strings.TrimSpace(
-			os.Getenv(
-				"LIBRARY_DATABASE_URL",
-			),
-		)
+	databaseURL, err :=
+		loadDatabaseURL()
 
-	if databaseURL == "" {
-		return Config{},
-			errors.New(
-				"LIBRARY_DATABASE_URL is empty",
-			)
+	if err != nil {
+		return Config{}, err
 	}
 
 	jwtSecret, err :=
@@ -58,11 +64,14 @@ func Load() (Config, error) {
 			"LIBRARY_JWT_SECRET",
 			"LIBRARY_JWT_SECRET_FILE",
 		)
+
 	if err != nil {
 		return Config{}, err
 	}
 
-	if len(jwtSecret) < minJWTSecretLength {
+	if len(jwtSecret) <
+		minJWTSecretLength {
+
 		return Config{},
 			fmt.Errorf(
 				"JWT secret must contain at least %d characters",
@@ -127,23 +136,115 @@ func Load() (Config, error) {
 			"LIBRARY_ENRICHMENT_SERVICE_SECRET",
 			"LIBRARY_ENRICHMENT_SERVICE_SECRET_FILE",
 		)
+
 	if err != nil {
 		return Config{}, err
 	}
 
 	return Config{
-		HTTPPort:    httpPort,
+		HTTPPort: httpPort,
+
 		DatabaseURL: databaseURL,
 
-		JWTSecret:   jwtSecret,
-		JWTIssuer:   jwtIssuer,
+		JWTSecret: jwtSecret,
+
+		JWTIssuer: jwtIssuer,
+
 		JWTAudience: jwtAudience,
 
 		KafkaBroker: kafkaBroker,
-		KafkaTopic:  kafkaTopic,
+
+		KafkaTopic: kafkaTopic,
 
 		EnrichmentServiceSecret: enrichmentServiceSecret,
 	}, nil
+}
+
+func loadDatabaseURL() (string, error) {
+	directURL :=
+		strings.TrimSpace(
+			os.Getenv(
+				"LIBRARY_DATABASE_URL",
+			),
+		)
+
+	if directURL != "" {
+		return directURL, nil
+	}
+
+	host :=
+		envOrDefault(
+			"LIBRARY_DATABASE_HOST",
+			defaultDatabaseHost,
+		)
+
+	port :=
+		envOrDefault(
+			"LIBRARY_DATABASE_PORT",
+			defaultDatabasePort,
+		)
+
+	user :=
+		envOrDefault(
+			"LIBRARY_DATABASE_USER",
+			defaultDatabaseUser,
+		)
+
+	databaseName :=
+		envOrDefault(
+			"LIBRARY_DATABASE_NAME",
+			defaultDatabaseName,
+		)
+
+	sslMode :=
+		envOrDefault(
+			"LIBRARY_DATABASE_SSLMODE",
+			defaultDatabaseSSLMode,
+		)
+
+	password, err :=
+		loadSecret(
+			"LIBRARY_DATABASE_PASSWORD",
+			"LIBRARY_DATABASE_PASSWORD_FILE",
+		)
+
+	if err != nil {
+		return "",
+			fmt.Errorf(
+				"load database password: %w",
+				err,
+			)
+	}
+
+	databaseURL :=
+		&url.URL{
+			Scheme: "postgres",
+
+			User: url.UserPassword(
+				user,
+				password,
+			),
+
+			Host: net.JoinHostPort(
+				host,
+				port,
+			),
+
+			Path: "/" + databaseName,
+		}
+
+	query :=
+		databaseURL.Query()
+
+	query.Set(
+		"sslmode",
+		sslMode,
+	)
+
+	databaseURL.RawQuery =
+		query.Encode()
+
+	return databaseURL.String(), nil
 }
 
 func loadSecret(
@@ -152,7 +253,9 @@ func loadSecret(
 ) (string, error) {
 	if value :=
 		strings.TrimSpace(
-			os.Getenv(envName),
+			os.Getenv(
+				envName,
+			),
 		); value != "" {
 
 		return value, nil
@@ -160,7 +263,9 @@ func loadSecret(
 
 	filePath :=
 		strings.TrimSpace(
-			os.Getenv(fileEnvName),
+			os.Getenv(
+				fileEnvName,
+			),
 		)
 
 	if filePath == "" {
@@ -176,6 +281,7 @@ func loadSecret(
 		os.ReadFile(
 			filePath,
 		)
+
 	if err != nil {
 		return "",
 			fmt.Errorf(
@@ -187,7 +293,9 @@ func loadSecret(
 
 	value :=
 		strings.TrimSpace(
-			string(data),
+			string(
+				data,
+			),
 		)
 
 	if value == "" {
@@ -199,4 +307,22 @@ func loadSecret(
 	}
 
 	return value, nil
+}
+
+func envOrDefault(
+	name string,
+	defaultValue string,
+) string {
+	value :=
+		strings.TrimSpace(
+			os.Getenv(
+				name,
+			),
+		)
+
+	if value == "" {
+		return defaultValue
+	}
+
+	return value
 }

@@ -20,7 +20,7 @@ import (
 const (
 	jwtClockLeeway = 30 * time.Second
 
-	accessTokenTTL = 24 * time.Hour
+	accessTokenTTL = 15 * time.Minute
 
 	telegramAccessTokenTTL = 15 * time.Minute
 

@@ -4,8 +4,15 @@ import (
 	"context"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
+)
+
+const (
+	maxMovieTitleRunes = 300
+
+	maxMovieReviewRunes = 5000
 )
 
 type Service struct {
@@ -57,38 +64,51 @@ func (service *Service) Create(
 	ctx context.Context,
 	params CreateParams,
 ) (*Movie, error) {
-	title := strings.TrimSpace(
-		params.Title,
-	)
+	title :=
+		strings.TrimSpace(
+			params.Title,
+		)
 
 	if title == "" {
 		return nil,
 			ErrMovieTitleRequired
 	}
 
-	normalizedTitle := strings.ToLower(
+	if utf8.RuneCountInString(
 		title,
-	)
+	) > maxMovieTitleRunes {
 
-	movieID := uuid.NewString()
-
-	event := Event{
-		EventID: uuid.NewString(),
-
-		Version: 1,
-
-		Type: "MovieCreated",
-
-		MovieID: movieID,
-
-		UserID: params.UserID,
-
-		Title: title,
-
-		ReleaseYear: params.ReleaseYear,
-
-		OccurredAt: time.Now().UTC(),
+		return nil,
+			ErrMovieTitleTooLong
 	}
+
+	normalizedTitle :=
+		strings.ToLower(
+			title,
+		)
+
+	movieID :=
+		uuid.NewString()
+
+	event :=
+		Event{
+			EventID: uuid.NewString(),
+
+			Version: 1,
+
+			Type: "MovieCreated",
+
+			MovieID: movieID,
+
+			UserID: params.UserID,
+
+			Title: title,
+
+			ReleaseYear: params.ReleaseYear,
+
+			OccurredAt: time.Now().
+				UTC(),
+		}
 
 	return service.writer.Create(
 		ctx,
@@ -111,26 +131,29 @@ func (service *Service) Create(
 
 type DeleteParams struct {
 	UserID string
-	ID     string
+
+	ID string
 }
 
 func (service *Service) Delete(
 	ctx context.Context,
 	params DeleteParams,
 ) error {
-	event := Event{
-		EventID: uuid.NewString(),
+	event :=
+		Event{
+			EventID: uuid.NewString(),
 
-		Version: 1,
+			Version: 1,
 
-		Type: "MovieDeleted",
+			Type: "MovieDeleted",
 
-		MovieID: params.ID,
+			MovieID: params.ID,
 
-		UserID: params.UserID,
+			UserID: params.UserID,
 
-		OccurredAt: time.Now().UTC(),
-	}
+			OccurredAt: time.Now().
+				UTC(),
+		}
 
 	return service.writer.Delete(
 		ctx,
@@ -147,7 +170,8 @@ func (service *Service) Delete(
 
 type GetParams struct {
 	UserID string
-	ID     string
+
+	ID string
 }
 
 func (service *Service) GetOne(
@@ -167,9 +191,12 @@ func (service *Service) GetOne(
 // Make movie watched
 
 type MakeWatchedParams struct {
-	ID     string
+	ID string
+
 	UserID string
+
 	Rating int
+
 	Review *string
 }
 
@@ -184,25 +211,37 @@ func (service *Service) MakeWatched(
 			ErrRatingIsOutOfRange
 	}
 
-	rating := params.Rating
+	if params.Review != nil &&
+		utf8.RuneCountInString(
+			*params.Review,
+		) > maxMovieReviewRunes {
 
-	event := Event{
-		EventID: uuid.NewString(),
-
-		Version: 1,
-
-		Type: "MovieWatched",
-
-		MovieID: params.ID,
-
-		UserID: params.UserID,
-
-		Rating: &rating,
-
-		Review: params.Review,
-
-		OccurredAt: time.Now().UTC(),
+		return nil,
+			ErrMovieReviewTooLong
 	}
+
+	rating :=
+		params.Rating
+
+	event :=
+		Event{
+			EventID: uuid.NewString(),
+
+			Version: 1,
+
+			Type: "MovieWatched",
+
+			MovieID: params.ID,
+
+			UserID: params.UserID,
+
+			Rating: &rating,
+
+			Review: params.Review,
+
+			OccurredAt: time.Now().
+				UTC(),
+		}
 
 	return service.writer.UpdateStatus(
 		ctx,
@@ -224,7 +263,8 @@ func (service *Service) MakeWatched(
 // Make movie unwatched
 
 type MakeUnwatchedParams struct {
-	ID     string
+	ID string
+
 	UserID string
 }
 
@@ -232,19 +272,21 @@ func (service *Service) MakeUnwatched(
 	ctx context.Context,
 	params MakeUnwatchedParams,
 ) (*Movie, error) {
-	event := Event{
-		EventID: uuid.NewString(),
+	event :=
+		Event{
+			EventID: uuid.NewString(),
 
-		Version: 1,
+			Version: 1,
 
-		Type: "MovieUnwatched",
+			Type: "MovieUnwatched",
 
-		MovieID: params.ID,
+			MovieID: params.ID,
 
-		UserID: params.UserID,
+			UserID: params.UserID,
 
-		OccurredAt: time.Now().UTC(),
-	}
+			OccurredAt: time.Now().
+				UTC(),
+		}
 
 	return service.writer.UpdateStatus(
 		ctx,
@@ -286,17 +328,25 @@ func (service *Service) GetRandom(
 type UpdateMetadataServiceParams struct {
 	EventID string
 
-	ID     string
+	ID string
+
 	UserID string
 
-	ExternalID       string
+	ExternalID string
+
 	MetadataProvider string
-	OriginalTitle    string
-	Description      string
-	ReleaseYear      int
-	PosterURL        string
-	RuntimeMinutes   *int
-	Genres           []string
+
+	OriginalTitle string
+
+	Description string
+
+	ReleaseYear int
+
+	PosterURL string
+
+	RuntimeMinutes *int
+
+	Genres []string
 }
 
 func (service *Service) UpdateMetadata(
@@ -336,7 +386,8 @@ func (service *Service) UpdateMetadata(
 type MarkMetadataFailedServiceParams struct {
 	EventID string
 
-	ID     string
+	ID string
+
 	UserID string
 
 	Error string
@@ -349,6 +400,8 @@ func (service *Service) MarkMetadataFailed(
 	return service.repo.MarkMetadataFailed(
 		ctx,
 		MarkMetadataFailedParams{
+			EventID: params.EventID,
+
 			ID: params.ID,
 
 			UserID: params.UserID,

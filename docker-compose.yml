@@ -130,7 +130,10 @@ services:
     environment:
       POSTGRES_DB: library_db
       POSTGRES_USER: library_user
-      POSTGRES_PASSWORD: library_password
+      POSTGRES_PASSWORD_FILE: /run/secrets/library_db_password
+
+    secrets:
+      - library_db_password
 
     volumes:
       - library_postgres_data:/var/lib/postgresql
@@ -156,18 +159,23 @@ services:
     volumes:
       - ./services/library/migrations:/migrations:ro
 
-    command:
-      [
-        "-path",
-        "/migrations",
-        "-database",
-        "postgres://library_user:library_password@library-postgres:5432/library_db?sslmode=disable",
-        "up"
-      ]
+    secrets:
+      - library_db_password
 
     depends_on:
       library-postgres:
         condition: service_healthy
+
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        DB_PASSWORD="$$(cat /run/secrets/library_db_password)"
+
+        exec /migrate \
+          -path /migrations \
+          -database "postgres://library_user:$${DB_PASSWORD}@library-postgres:5432/library_db?sslmode=disable" \
+          up
 
 
   library-app:
@@ -180,7 +188,12 @@ services:
     environment:
       LIBRARY_HTTP_PORT: 8081
 
-      LIBRARY_DATABASE_URL: postgres://library_user:library_password@library-postgres:5432/library_db?sslmode=disable
+      LIBRARY_DATABASE_HOST: library-postgres
+      LIBRARY_DATABASE_PORT: 5432
+      LIBRARY_DATABASE_NAME: library_db
+      LIBRARY_DATABASE_USER: library_user
+      LIBRARY_DATABASE_PASSWORD_FILE: /run/secrets/library_db_password
+      LIBRARY_DATABASE_SSLMODE: disable
 
       LIBRARY_JWT_SECRET_FILE: /run/secrets/jwt_secret
 
@@ -190,6 +203,7 @@ services:
       LIBRARY_ENRICHMENT_SERVICE_SECRET_FILE: /run/secrets/enrichment_library_service_token
 
     secrets:
+      - library_db_password
       - jwt_secret
       - enrichment_library_service_token
 
@@ -218,7 +232,10 @@ services:
     environment:
       POSTGRES_DB: auth_db
       POSTGRES_USER: auth_user
-      POSTGRES_PASSWORD: auth_password
+      POSTGRES_PASSWORD_FILE: /run/secrets/auth_db_password
+
+    secrets:
+      - auth_db_password
 
     volumes:
       - auth_postgres_data:/var/lib/postgresql
@@ -244,18 +261,23 @@ services:
     volumes:
       - ./services/auth/migrations:/migrations:ro
 
-    command:
-      [
-        "-path",
-        "/migrations",
-        "-database",
-        "postgres://auth_user:auth_password@auth-postgres:5432/auth_db?sslmode=disable",
-        "up"
-      ]
+    secrets:
+      - auth_db_password
 
     depends_on:
       auth-postgres:
         condition: service_healthy
+
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        DB_PASSWORD="$$(cat /run/secrets/auth_db_password)"
+
+        exec /migrate \
+          -path /migrations \
+          -database "postgres://auth_user:$${DB_PASSWORD}@auth-postgres:5432/auth_db?sslmode=disable" \
+          up
 
 
   auth-app:
@@ -268,13 +290,19 @@ services:
     environment:
       AUTH_HTTP_PORT: 8082
 
-      AUTH_DATABASE_URL: postgres://auth_user:auth_password@auth-postgres:5432/auth_db?sslmode=disable
+      AUTH_DATABASE_HOST: auth-postgres
+      AUTH_DATABASE_PORT: 5432
+      AUTH_DATABASE_NAME: auth_db
+      AUTH_DATABASE_USER: auth_user
+      AUTH_DATABASE_PASSWORD_FILE: /run/secrets/auth_db_password
+      AUTH_DATABASE_SSLMODE: disable
 
       AUTH_JWT_SECRET_FILE: /run/secrets/jwt_secret
 
       AUTH_TELEGRAM_SERVICE_SECRET_FILE: /run/secrets/telegram_auth_service_token
 
     secrets:
+      - auth_db_password
       - jwt_secret
       - telegram_auth_service_token
 
@@ -403,6 +431,12 @@ volumes:
 
 
 secrets:
+  library_db_password:
+    file: ./.secrets/library_db_password
+
+  auth_db_password:
+    file: ./.secrets/auth_db_password
+
   jwt_secret:
     file: ./.secrets/jwt_secret
 

@@ -1,19 +1,25 @@
 package config
 
 import (
-	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
 const (
-	defaultJWTIssuer = "movietracker-auth"
-
+	defaultJWTIssuer   = "movietracker-auth"
 	defaultJWTAudience = "movietracker-api"
 
 	minJWTSecretLength = 32
+
+	defaultDatabaseHost    = "auth-postgres"
+	defaultDatabasePort    = "5432"
+	defaultDatabaseUser    = "auth_user"
+	defaultDatabaseName    = "auth_db"
+	defaultDatabaseSSLMode = "disable"
 )
 
 type Config struct {
@@ -44,18 +50,11 @@ func Load() (Config, error) {
 		httpPort = "8082"
 	}
 
-	databaseURL :=
-		strings.TrimSpace(
-			os.Getenv(
-				"AUTH_DATABASE_URL",
-			),
-		)
+	databaseURL, err :=
+		loadDatabaseURL()
 
-	if databaseURL == "" {
-		return Config{},
-			errors.New(
-				"AUTH_DATABASE_URL is empty",
-			)
+	if err != nil {
+		return Config{}, err
 	}
 
 	jwtSecret, err :=
@@ -139,6 +138,93 @@ func Load() (Config, error) {
 	}, nil
 }
 
+func loadDatabaseURL() (string, error) {
+	directURL :=
+		strings.TrimSpace(
+			os.Getenv(
+				"AUTH_DATABASE_URL",
+			),
+		)
+
+	if directURL != "" {
+		return directURL, nil
+	}
+
+	host :=
+		envOrDefault(
+			"AUTH_DATABASE_HOST",
+			defaultDatabaseHost,
+		)
+
+	port :=
+		envOrDefault(
+			"AUTH_DATABASE_PORT",
+			defaultDatabasePort,
+		)
+
+	user :=
+		envOrDefault(
+			"AUTH_DATABASE_USER",
+			defaultDatabaseUser,
+		)
+
+	databaseName :=
+		envOrDefault(
+			"AUTH_DATABASE_NAME",
+			defaultDatabaseName,
+		)
+
+	sslMode :=
+		envOrDefault(
+			"AUTH_DATABASE_SSLMODE",
+			defaultDatabaseSSLMode,
+		)
+
+	password, err :=
+		loadSecret(
+			"AUTH_DATABASE_PASSWORD",
+			"AUTH_DATABASE_PASSWORD_FILE",
+		)
+
+	if err != nil {
+		return "",
+			fmt.Errorf(
+				"load database password: %w",
+				err,
+			)
+	}
+
+	databaseURL :=
+		&url.URL{
+			Scheme: "postgres",
+
+			User: url.UserPassword(
+				user,
+				password,
+			),
+
+			Host: net.JoinHostPort(
+				host,
+				port,
+			),
+
+			Path: "/" + databaseName,
+		}
+
+	query :=
+		databaseURL.Query()
+
+	query.Set(
+		"sslmode",
+		sslMode,
+	)
+
+	databaseURL.RawQuery =
+		query.Encode()
+
+	return databaseURL.String(), nil
+}
+
 func loadSecret(
 	envName string,
 	fileEnvName string,
@@ -199,6 +285,24 @@ func loadSecret(
 	}
 
 	return value, nil
+}
+
+func envOrDefault(
+	name string,
+	defaultValue string,
+) string {
+	value :=
+		strings.TrimSpace(
+			os.Getenv(
+				name,
+			),
+		)
+
+	if value == "" {
+		return defaultValue
+	}
+
+	return value
 }
 
 func loadBool(
