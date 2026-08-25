@@ -2,7 +2,9 @@ package movies
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
+	"math/big"
 	"strings"
 	"time"
 
@@ -28,8 +30,6 @@ type movieScanner interface {
 	Scan(dest ...any) error
 }
 
-// ВАЖНО:
-// порядок полей здесь должен полностью совпадать
 // с порядком колонок во всех SELECT / RETURNING ниже.
 func scanMovie(
 	scanner movieScanner,
@@ -534,77 +534,97 @@ func (repo *Repository) GetRandom(
 	ctx context.Context,
 	params GetRandomMovieParams,
 ) (*Movie, error) {
-	query := `
-		SELECT
-			id,
-			user_id,
-			title,
-			normalized_title,
-			release_year,
+	queryCtx, cancel :=
+		context.WithTimeout(
+			ctx,
+			3*time.Second,
+		)
 
-			external_id,
-			metadata_provider,
-			original_title,
-			description,
-			poster_url,
-			runtime_minutes,
-			metadata_status,
-			metadata_error,
-
-			status,
-			rating,
-			review,
-			created_at,
-			updated_at,
-			watched_at,
-			deleted_at
-		FROM movies
-		WHERE user_id = $1
-		  AND deleted_at IS NULL
-		ORDER BY random()
-		LIMIT 1
-	`
-
-	queryCtx, cancel := context.WithTimeout(
-		ctx,
-		3*time.Second,
-	)
 	defer cancel()
 
-	var movie Movie
+	rows, err :=
+		repo.db.Query(
+			queryCtx,
+			`
+			SELECT id
+			FROM movies
+			WHERE user_id = $1
+			  AND deleted_at IS NULL
+			  AND status = 'unwatched'
+			`,
+			params.UserID,
+		)
 
-	row := repo.db.QueryRow(
-		queryCtx,
-		query,
-		params.UserID,
-	)
-
-	err := scanMovie(
-		row,
-		&movie,
-	)
 	if err != nil {
-		if errors.Is(
-			err,
-			pgx.ErrNoRows,
-		) {
-			return nil, ErrMovieNotFound
+		return nil, err
+	}
+
+	movieIDs :=
+		make(
+			[]string,
+			0,
+		)
+
+	for rows.Next() {
+		var movieID string
+
+		if err :=
+			rows.Scan(
+				&movieID,
+			); err != nil {
+
+			rows.Close()
+
+			return nil, err
 		}
 
+		movieIDs =
+			append(
+				movieIDs,
+				movieID,
+			)
+	}
+
+	if err :=
+		rows.Err(); err != nil {
+
+		rows.Close()
+
 		return nil, err
 	}
 
-	genres, err := repo.loadGenres(
-		queryCtx,
-		movie.ID,
-	)
+	rows.Close()
+
+	if len(movieIDs) == 0 {
+		return nil,
+			ErrMovieNotFound
+	}
+
+	randomIndex, err :=
+		cryptorand.Int(
+			cryptorand.Reader,
+			big.NewInt(
+				int64(
+					len(movieIDs),
+				),
+			),
+		)
+
 	if err != nil {
 		return nil, err
 	}
 
-	movie.Genres = genres
+	selectedMovieID :=
+		movieIDs[randomIndex.Int64()]
 
-	return &movie, nil
+	return repo.GetOne(
+		queryCtx,
+		GetOneParams{
+			UserID: params.UserID,
+
+			ID: selectedMovieID,
+		},
+	)
 }
 
 // Update metadata
