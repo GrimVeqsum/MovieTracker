@@ -1,274 +1,341 @@
-# MovieBase
+# MovieTracker
 
-MovieBase — backend-проект для управления личной библиотекой фильмов.
+[![CI](https://github.com/GrimVeqsum/MovieTracker/actions/workflows/ci.yml/badge.svg)](https://github.com/GrimVeqsum/MovieTracker/actions/workflows/ci.yml)
 
-Проект построен как небольшая микросервисная система на Go:
+MovieTracker — сервис для ведения личной библиотеки фильмов.
 
-- Gateway Service — единая точка входа в API
-- Auth Service — регистрация, вход, выход и выдача JWT
-- Library Service — управление списком фильмов авторизованного пользователя
+Пользователь может добавлять фильмы, отмечать их просмотренными, ставить оценки, оставлять отзывы и получать случайный фильм из списка непросмотренных. После добавления информация о фильме дополняется асинхронно. Библиотекой также можно управлять через Telegram-бота.
+
+## Архитектура
+
+```text
+                         ┌──────────────┐
+Интернет ───────────────►│    Caddy     │
+                         └──────┬───────┘
+                                │
+                         ┌──────▼───────┐
+                         │   Gateway    │
+                         └──────┬───────┘
+                            ┌───┴───┐
+                            │       │
+                     ┌──────▼──┐ ┌──▼─────────┐
+                     │  Auth   │ │  Library   │
+                     └────┬────┘ └─────┬──────┘
+                          │            │
+                     PostgreSQL   PostgreSQL
+                                       │
+                                     Outbox
+                                       │
+                                       ▼
+                                     Kafka
+                                       │
+                              ┌────────▼─────────┐
+                              │   Enrichment     │
+                              └────────┬─────────┘
+                                       │
+                              API метаданных фильмов
+
+Telegram API ◄────► Telegram Service ───► Auth / Library
+```
+
+### Сервисы
+
+- **Gateway** — единая публичная точка входа, маршрутизация запросов и ограничение частоты запросов.
+- **Auth** — регистрация, вход, JWT-токены, refresh-сессии и привязка Telegram.
+- **Library** — хранение фильмов пользователя, статусов просмотра, оценок, отзывов и метаданных.
+- **Enrichment** — обработка событий из Kafka и получение данных о фильмах из внешнего API.
+- **Telegram** — управление библиотекой через Telegram Bot API.
+
+Auth и Library используют отдельные базы PostgreSQL.
+
+При создании фильма Library сохраняет событие в transactional outbox. Событие публикуется в Kafka и обрабатывается Enrichment-сервисом. Необработанные после повторных попыток сообщения отправляются в DLQ.
 
 ## Стек
 
-- Go
-- net/http
+- Go 1.25
+- `net/http`
 - PostgreSQL
 - pgx
+- Apache Kafka
+- Docker
 - Docker Compose
 - golang-migrate
 - JWT
 - bcrypt
+- Caddy
+- Telegram Bot API
 - Swagger / OpenAPI
+- GitHub Actions
 
-## Сервисы
+## Быстрый запуск
 
-### Gateway Service
+### Требования
 
-Gateway Service — основная точка входа в проект.
+- Docker
+- Docker Compose
 
-Base URL:
+### Секреты
+
+Создайте каталог:
+
+```text
+.secrets/
+```
+
+В нём должны находиться:
+
+```text
+.secrets/
+├── auth_db_password
+├── library_db_password
+├── jwt_secret
+├── telegram_bot_token
+├── telegram_auth_service_token
+├── movie_api_key
+└── enrichment_library_service_token
+```
+
+Каждый файл содержит только значение соответствующего секрета.
+
+Каталог `.secrets/` исключён из Git.
+
+### Запуск
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up -d --build
+```
+
+Проверить состояние контейнеров:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  ps
+```
+
+Gateway будет доступен по адресу:
 
 ```text
 http://localhost:8080
 ```
 
-Маршрутизация:
+Проверка готовности:
 
 ```text
-/auth/*   -> Auth Service
-/movies*  -> Library Service
+http://localhost:8080/ready
 ```
 
-Основные endpoints через Gateway:
+Остановка:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  down
+```
+
+## API
+
+Основное API доступно через Gateway:
 
 ```text
-POST   /auth/register
-POST   /auth/login
-POST   /auth/logout
-
-POST   /movies
-GET    /movies
-GET    /movies/random
-GET    /movies/{id}
-DELETE /movies/{id}
-PATCH  /movies/{id}/watched
-PATCH  /movies/{id}/unwatched
-
-GET    /health
-GET    /ready
+/auth/*
+/movies
+/movies/*
 ```
 
-### Auth Service
+Основные возможности:
 
-Auth Service отвечает за регистрацию пользователей, вход, выход и выдачу access token.
+- регистрация и вход;
+- обновление access-токена;
+- выход из аккаунта;
+- привязка Telegram;
+- добавление и удаление фильмов;
+- получение списка фильмов;
+- получение фильма по идентификатору;
+- выбор случайного непросмотренного фильма;
+- отметка фильма просмотренным или непросмотренным;
+- оценка и отзыв.
 
-Swagger:
+Маршруты `/movies` требуют авторизации:
 
 ```text
-http://localhost:8082/swagger/index.html
+Authorization: Bearer <access_token>
 ```
 
-Endpoints:
+Служебные маршруты Auth и Library используются только для взаимодействия между сервисами и не публикуются через Gateway.
+
+## Локальная разработка
+
+В конфигурации для разработки наружу дополнительно открыты:
 
 ```text
-POST /auth/register
-POST /auth/login
-POST /auth/logout
-GET  /health
-GET  /ready
+Gateway   http://localhost:8080
+Library   http://localhost:8081
+Auth      http://localhost:8082
 ```
-
-### Library Service
-
-Library Service отвечает за управление списком фильмов авторизованного пользователя.
 
 Swagger:
 
 ```text
 http://localhost:8081/swagger/index.html
-```
-
-Endpoints:
-
-```text
-POST   /movies
-GET    /movies
-GET    /movies/random
-GET    /movies/{id}
-DELETE /movies/{id}
-PATCH  /movies/{id}/watched
-PATCH  /movies/{id}/unwatched
-GET    /health
-GET    /ready
-```
-
-Все `/movies` endpoints требуют авторизацию.
-
-## Запуск проекта
-
-```bash
-docker compose up --build
-```
-
-## Остановка проекта
-
-```bash
-docker compose down
-```
-
-## Проверка контейнеров
-
-```bash
-docker compose ps
-```
-
-## Сброс базы данных
-
-```bash
-docker compose down -v
-```
-
-## Swagger
-
-Auth Swagger:
-
-```text
 http://localhost:8082/swagger/index.html
 ```
 
-Library Swagger:
-
-```text
-http://localhost:8081/swagger/index.html
-```
-
-Чтобы использовать защищённые endpoints Library Service через Swagger:
-
-1. Открыть Auth Swagger.
-2. Вызвать `POST /auth/register`.
-3. Вызвать `POST /auth/login`.
-4. Скопировать `access_token` из ответа.
-5. Открыть Library Swagger.
-6. Нажать `Authorize`.
-7. Вставить токен в формате:
-
-```text
-Bearer <access_token>
-```
-
-## Пример использования через Gateway
-
-Регистрация:
-
-```http
-POST http://localhost:8080/auth/register
-Content-Type: application/json
-
-{
-  "email": "test@example.com",
-  "password": "password123"
-}
-```
-
-Вход:
-
-```http
-POST http://localhost:8080/auth/login
-Content-Type: application/json
-
-{
-  "email": "test@example.com",
-  "password": "password123"
-}
-```
-
-После входа в ответе приходит `access_token`.
-
-Для запросов к фильмам нужно передавать токен:
-
-```text
-Authorization: Bearer <access_token>
-```
-
-Создать фильм:
-
-```http
-POST http://localhost:8080/movies
-Authorization: Bearer <access_token>
-Content-Type: application/json
-
-{
-  "title": "Inception",
-  "release_year": 2010
-}
-```
-
-Получить список фильмов:
-
-```http
-GET http://localhost:8080/movies
-Authorization: Bearer <access_token>
-```
-
-Получить случайный фильм:
-
-```http
-GET http://localhost:8080/movies/random
-Authorization: Bearer <access_token>
-```
-
-Отметить фильм просмотренным:
-
-```http
-PATCH http://localhost:8080/movies/{id}/watched
-Authorization: Bearer <access_token>
-Content-Type: application/json
-
-{
-  "rating": 9,
-  "review": "Great movie"
-}
-```
-
-Отметить фильм непросмотренным:
-
-```http
-PATCH http://localhost:8080/movies/{id}/unwatched
-Authorization: Bearer <access_token>
-```
-
-Удалить фильм:
-
-```http
-DELETE http://localhost:8080/movies/{id}
-Authorization: Bearer <access_token>
-```
-
-Выйти:
-
-```http
-POST http://localhost:8080/auth/logout
-Authorization: Bearer <access_token>
-```
+Основной `docker-compose.yml` не публикует внутренние сервисы наружу. Дополнительные порты подключаются через `docker-compose.dev.yml`.
 
 ## Авторизация
 
-В проекте используется JWT-авторизация.
+После входа Auth выдаёт короткоживущий JWT access token.
 
-После успешного входа Auth Service создаёт JWT access token.
+Refresh token хранится в cookie и используется для получения нового access token. При обновлении refresh token заменяется новым, а при выходе соответствующая сессия отзывается.
 
-Library Service защищает все `/movies` endpoints и проверяет токен из заголовка:
+Library проверяет JWT самостоятельно и использует идентификатор пользователя из токена для доступа только к его фильмам.
+
+## Обработка событий
+
+Создание фильма не требует ожидания внешнего API.
+
+Library записывает фильм и событие в одной транзакции PostgreSQL:
 
 ```text
-Authorization: Bearer <access_token>
+Library
+   │
+   ├── movies
+   │
+   └── outbox
+          │
+          ▼
+        Kafka
+          │
+          ▼
+     Enrichment
+          │
+          ▼
+  API метаданных
+          │
+          ▼
+       Library
 ```
 
-ID пользователя хранится внутри JWT и используется в Library Service, чтобы пользователь мог работать только со своими фильмами.
+Это позволяет сохранить событие даже при временной недоступности Kafka.
 
-## Особенности
+Повторная обработка одного события не приводит к повторному изменению уже обработанных метаданных.
 
-- Gateway Service используется как единая точка входа.
-- Auth Service и Library Service используют отдельные базы PostgreSQL.
-- Миграции применяются автоматически через Docker Compose.
-- Swagger-документация доступна для Auth Service и Library Service.
-- Logout реализован как client-side token invalidation.
+## Миграции
+
+Миграции Auth и Library выполняются автоматически перед запуском приложений.
+
+Используется `golang-migrate`.
+
+Миграции находятся в каталогах:
+
+```text
+services/auth/migrations
+services/library/migrations
+```
+
+## Рабочее окружение
+
+Для рабочего запуска используется:
+
+```text
+docker-compose.yml
+docker-compose.prod.yml
+```
+
+Необходимо задать домен:
+
+```bash
+export MOVIETRACKER_DOMAIN=example.com
+```
+
+Запуск:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prod.yml \
+  up -d --build
+```
+
+Caddy принимает HTTP/HTTPS-запросы и передаёт их в Gateway.
+
+Наружу публикуются только:
+
+```text
+80
+443
+```
+
+PostgreSQL, Kafka, Auth, Library, Enrichment и Telegram-сервис остаются внутри сети Docker.
+
+## Резервное копирование
+
+Скрипт резервного копирования:
+
+```text
+deploy/backup.sh
+```
+
+Он создаёт архивы обеих PostgreSQL-баз через `pg_dump`.
+
+Резервные копии сохраняются в:
+
+```text
+backups/
+```
+
+По умолчанию файлы старше 7 дней удаляются.
+
+Каталог `backups/` исключён из Git.
+
+## CI
+
+GitHub Actions запускается при:
+
+- push в `main`;
+- pull request в `main`.
+
+Каждый Go-сервис проверяется отдельно:
+
+```text
+auth
+library
+gateway
+enrichment
+telegram
+```
+
+Для каждого выполняются:
+
+```text
+go mod download
+go mod verify
+go vet ./...
+go test ./...
+go build ./...
+```
+
+## Проверка работы
+
+После запуска Gateway доступен по адресу:
+
+````text
+http://localhost:8080
+
+## Назначение секретов:
+
+```text
+auth_db_password                    пароль базы Auth
+library_db_password                 пароль базы Library
+jwt_secret                          ключ подписи JWT
+telegram_bot_token                  токен Telegram-бота
+telegram_auth_service_token         ключ Telegram Service → Auth
+movie_api_key                       ключ API метаданных фильмов
+enrichment_library_service_token    ключ Enrichment → Library
+````
