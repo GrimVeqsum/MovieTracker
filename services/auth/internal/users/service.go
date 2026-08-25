@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
+	"encoding/hex"
 	"errors"
 	"net/mail"
 	"strings"
@@ -16,23 +17,50 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	jwtClockLeeway = 30 * time.Second
+
+	accessTokenTTL = 24 * time.Hour
+
+	telegramAccessTokenTTL = 15 * time.Minute
+
+	refreshSessionTTL = 30 * 24 * time.Hour
+
+	maxEmailLength = 254
+
+	maxPasswordBytes = 72
+)
+
 type Service struct {
-	repo      *Repository
+	repo *Repository
+
 	jwtSecret string
+
+	jwtIssuer string
+
+	jwtAudience string
 }
 
 func NewService(
 	repo *Repository,
 	jwtSecret string,
+	jwtIssuer string,
+	jwtAudience string,
 ) *Service {
 	return &Service{
-		repo:      repo,
+		repo: repo,
+
 		jwtSecret: jwtSecret,
+
+		jwtIssuer: jwtIssuer,
+
+		jwtAudience: jwtAudience,
 	}
 }
 
 type RegisterParams struct {
-	Email    string
+	Email string
+
 	Password string
 }
 
@@ -40,30 +68,55 @@ func (service *Service) Register(
 	ctx context.Context,
 	params RegisterParams,
 ) (*User, error) {
-	email := strings.TrimSpace(
-		strings.ToLower(
+	email :=
+		normalizeEmail(
 			params.Email,
-		),
-	)
+		)
 
 	if email == "" {
-		return nil, ErrEmailRequired
+		return nil,
+			ErrEmailRequired
 	}
 
-	parsedEmail, err := mail.ParseAddress(email)
+	if len(email) >
+		maxEmailLength {
+
+		return nil,
+			ErrEmailTooLong
+	}
+
+	parsedEmail, err :=
+		mail.ParseAddress(
+			email,
+		)
+
 	if err != nil ||
 		parsedEmail.Address != email {
 
-		return nil, ErrInvalidEmail
+		return nil,
+			ErrInvalidEmail
 	}
 
 	if len(params.Password) < 8 {
-		return nil, ErrPasswordTooShort
+		return nil,
+			ErrPasswordTooShort
+	}
+
+	if len(
+		[]byte(
+			params.Password,
+		),
+	) > maxPasswordBytes {
+
+		return nil,
+			ErrPasswordTooLong
 	}
 
 	passwordHash, err :=
 		bcrypt.GenerateFromPassword(
-			[]byte(params.Password),
+			[]byte(
+				params.Password,
+			),
 			bcrypt.DefaultCost,
 		)
 
@@ -78,19 +131,27 @@ func (service *Service) Register(
 
 			Email: email,
 
-			PasswordHash: string(passwordHash),
+			PasswordHash: string(
+				passwordHash,
+			),
 		},
 	)
 }
 
 type LoginParams struct {
-	Email    string
+	Email string
+
 	Password string
 }
 
 type LoginResult struct {
-	User        *User
+	User *User
+
 	AccessToken string
+
+	RefreshToken string
+
+	RefreshExpiresAt time.Time
 }
 
 type AccessTokenClaims struct {
@@ -103,23 +164,31 @@ func (service *Service) Login(
 	ctx context.Context,
 	params LoginParams,
 ) (*LoginResult, error) {
-	email := strings.TrimSpace(
-		strings.ToLower(
+	email :=
+		normalizeEmail(
 			params.Email,
-		),
-	)
+		)
 
 	if email == "" {
-		return nil, ErrEmailRequired
+		return nil,
+			ErrInvalidCredentials
 	}
 
-	parsedEmail, err :=
-		mail.ParseAddress(email)
+	if len(email) >
+		maxEmailLength {
 
-	if err != nil ||
-		parsedEmail.Address != email {
+		return nil,
+			ErrInvalidCredentials
+	}
 
-		return nil, ErrInvalidEmail
+	if len(
+		[]byte(
+			params.Password,
+		),
+	) > maxPasswordBytes {
+
+		return nil,
+			ErrInvalidCredentials
 	}
 
 	user, err :=
@@ -142,8 +211,12 @@ func (service *Service) Login(
 
 	err =
 		bcrypt.CompareHashAndPassword(
-			[]byte(user.PasswordHash),
-			[]byte(params.Password),
+			[]byte(
+				user.PasswordHash,
+			),
+			[]byte(
+				params.Password,
+			),
 		)
 
 	if err != nil {
@@ -151,17 +224,55 @@ func (service *Service) Login(
 			ErrInvalidCredentials
 	}
 
-	resultUser := &User{
-		ID:        user.ID,
-		Email:     user.Email,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-	}
+	resultUser :=
+		&User{
+			ID: user.ID,
+
+			Email: user.Email,
+
+			CreatedAt: user.CreatedAt,
+
+			UpdatedAt: user.UpdatedAt,
+		}
 
 	accessToken, err :=
 		service.createAccessToken(
 			resultUser,
-			24*time.Hour,
+			accessTokenTTL,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken, err :=
+		generateRefreshToken()
+
+	if err != nil {
+		return nil, err
+	}
+
+	refreshExpiresAt :=
+		time.Now().
+			UTC().
+			Add(
+				refreshSessionTTL,
+			)
+
+	err =
+		service.repo.CreateRefreshSession(
+			ctx,
+			CreateRefreshSessionParams{
+				ID: uuid.NewString(),
+
+				UserID: resultUser.ID,
+
+				TokenHash: hashRefreshToken(
+					refreshToken,
+				),
+
+				ExpiresAt: refreshExpiresAt,
+			},
 		)
 
 	if err != nil {
@@ -169,13 +280,106 @@ func (service *Service) Login(
 	}
 
 	return &LoginResult{
-		User:        resultUser,
+		User: resultUser,
+
 		AccessToken: accessToken,
+
+		RefreshToken: refreshToken,
+
+		RefreshExpiresAt: refreshExpiresAt,
 	}, nil
 }
 
+type RefreshResult struct {
+	AccessToken string
+
+	RefreshToken string
+
+	RefreshExpiresAt time.Time
+}
+
+func (service *Service) Refresh(
+	ctx context.Context,
+	refreshToken string,
+) (*RefreshResult, error) {
+	refreshToken =
+		strings.TrimSpace(
+			refreshToken,
+		)
+
+	if refreshToken == "" {
+		return nil,
+			ErrInvalidRefreshToken
+	}
+
+	newRefreshToken, err :=
+		generateRefreshToken()
+
+	if err != nil {
+		return nil, err
+	}
+
+	session, err :=
+		service.repo.RotateRefreshSession(
+			ctx,
+			RotateRefreshSessionParams{
+				OldTokenHash: hashRefreshToken(
+					refreshToken,
+				),
+
+				NewTokenHash: hashRefreshToken(
+					newRefreshToken,
+				),
+			},
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	accessToken, err :=
+		service.createAccessToken(
+			session.User,
+			accessTokenTTL,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &RefreshResult{
+		AccessToken: accessToken,
+
+		RefreshToken: newRefreshToken,
+
+		RefreshExpiresAt: session.ExpiresAt,
+	}, nil
+}
+
+func (service *Service) Logout(
+	ctx context.Context,
+	refreshToken string,
+) error {
+	refreshToken =
+		strings.TrimSpace(
+			refreshToken,
+		)
+
+	if refreshToken == "" {
+		return nil
+	}
+
+	return service.repo.RevokeRefreshSession(
+		ctx,
+		hashRefreshToken(
+			refreshToken,
+		),
+	)
+}
+
 type TelegramLinkCodeResult struct {
-	Code      string
+	Code string
+
 	ExpiresAt time.Time
 }
 
@@ -200,7 +404,9 @@ func (service *Service) CreateTelegramLinkCode(
 	}
 
 	codeHash :=
-		hashTelegramLinkCode(code)
+		hashTelegramLinkCode(
+			code,
+		)
 
 	expiresAt :=
 		time.Now().
@@ -222,7 +428,8 @@ func (service *Service) CreateTelegramLinkCode(
 	}
 
 	return &TelegramLinkCodeResult{
-		Code:      code,
+		Code: code,
+
 		ExpiresAt: expiresAt,
 	}, nil
 }
@@ -278,7 +485,7 @@ func (service *Service) CreateTokenForTelegram(
 
 	return service.createAccessToken(
 		user,
-		15*time.Minute,
+		telegramAccessTokenTTL,
 	)
 }
 
@@ -286,24 +493,38 @@ func (service *Service) createAccessToken(
 	user *User,
 	duration time.Duration,
 ) (string, error) {
-	now := time.Now().UTC()
+	now :=
+		time.Now().
+			UTC()
 
 	claims :=
 		AccessTokenClaims{
 			Email: user.Email,
 
 			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer: service.jwtIssuer,
+
 				Subject: user.ID,
 
-				IssuedAt: jwt.NewNumericDate(
-					now,
-				),
+				Audience: jwt.ClaimStrings{
+					service.jwtAudience,
+				},
 
 				ExpiresAt: jwt.NewNumericDate(
 					now.Add(
 						duration,
 					),
 				),
+
+				NotBefore: jwt.NewNumericDate(
+					now,
+				),
+
+				IssuedAt: jwt.NewNumericDate(
+					now,
+				),
+
+				ID: uuid.NewString(),
 			},
 		}
 
@@ -340,6 +561,7 @@ func (service *Service) userIDFromAccessToken(
 		jwt.ParseWithClaims(
 			tokenString,
 			claims,
+
 			func(
 				token *jwt.Token,
 			) (any, error) {
@@ -347,16 +569,35 @@ func (service *Service) userIDFromAccessToken(
 					service.jwtSecret,
 				), nil
 			},
+
 			jwt.WithValidMethods(
 				[]string{
 					jwt.SigningMethodHS256.Alg(),
 				},
 			),
+
+			jwt.WithIssuer(
+				service.jwtIssuer,
+			),
+
+			jwt.WithAudience(
+				service.jwtAudience,
+			),
+
+			jwt.WithExpirationRequired(),
+
+			jwt.WithIssuedAt(),
+
+			jwt.WithLeeway(
+				jwtClockLeeway,
+			),
 		)
 
 	if err != nil ||
 		!token.Valid ||
-		claims.Subject == "" {
+		strings.TrimSpace(
+			claims.Subject,
+		) == "" {
 
 		return "",
 			ErrInvalidAccessToken
@@ -365,17 +606,68 @@ func (service *Service) userIDFromAccessToken(
 	return claims.Subject, nil
 }
 
+func normalizeEmail(
+	email string,
+) string {
+	return strings.TrimSpace(
+		strings.ToLower(
+			email,
+		),
+	)
+}
+
+func generateRefreshToken() (
+	string,
+	error,
+) {
+	data :=
+		make(
+			[]byte,
+			32,
+		)
+
+	if _, err :=
+		rand.Read(
+			data,
+		); err != nil {
+
+		return "", err
+	}
+
+	return hex.EncodeToString(
+		data,
+	), nil
+}
+
+func hashRefreshToken(
+	token string,
+) []byte {
+	hash :=
+		sha256.Sum256(
+			[]byte(
+				strings.TrimSpace(
+					token,
+				),
+			),
+		)
+
+	return hash[:]
+}
+
 func generateTelegramLinkCode() (
 	string,
 	error,
 ) {
-	data := make(
-		[]byte,
-		5,
-	)
+	data :=
+		make(
+			[]byte,
+			5,
+		)
 
 	if _, err :=
-		rand.Read(data); err != nil {
+		rand.Read(
+			data,
+		); err != nil {
 
 		return "", err
 	}
@@ -437,7 +729,9 @@ func hashTelegramLinkCode(
 
 	hash :=
 		sha256.Sum256(
-			[]byte(normalized),
+			[]byte(
+				normalized,
+			),
 		)
 
 	return hash[:]

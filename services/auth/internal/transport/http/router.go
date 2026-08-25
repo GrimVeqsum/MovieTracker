@@ -13,7 +13,8 @@ func NewRouter(
 	userHandler *users.Handler,
 	telegramHandler *users.TelegramHandler,
 ) http.Handler {
-	mux := http.NewServeMux()
+	mux :=
+		http.NewServeMux()
 
 	mux.HandleFunc(
 		"/swagger/",
@@ -38,6 +39,11 @@ func NewRouter(
 	mux.HandleFunc(
 		"POST /auth/login",
 		userHandler.Login,
+	)
+
+	mux.HandleFunc(
+		"POST /auth/refresh",
+		userHandler.Refresh,
 	)
 
 	mux.HandleFunc(

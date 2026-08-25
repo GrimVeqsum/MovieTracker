@@ -2,24 +2,58 @@ package users
 
 import "errors"
 
-var ErrUserAlreadyExists = errors.New("user already exists")
+var ErrUserAlreadyExists = errors.New(
+	"user already exists",
+)
 
-var ErrEmailRequired = errors.New("email is required")
+var ErrEmailRequired = errors.New(
+	"email is required",
+)
 
-var ErrInvalidEmail = errors.New("email is invalid")
+var ErrInvalidEmail = errors.New(
+	"email is invalid",
+)
 
-var ErrPasswordTooShort = errors.New("password is too short")
+var ErrEmailTooLong = errors.New(
+	"email is too long",
+)
 
-var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrPasswordTooShort = errors.New(
+	"password is too short",
+)
 
-var ErrInvalidAccessToken = errors.New("invalid access token")
+var ErrPasswordTooLong = errors.New(
+	"password is too long",
+)
 
-var ErrTelegramLinkCodeNotFound = errors.New("telegram link code not found or expired")
+var ErrInvalidCredentials = errors.New(
+	"invalid credentials",
+)
 
-var ErrTelegramAccountAlreadyLinked = errors.New("telegram account already linked")
+var ErrInvalidAccessToken = errors.New(
+	"invalid access token",
+)
 
-var ErrMovieTrackerAccountAlreadyLinked = errors.New("movietracker account already linked to telegram")
+var ErrInvalidRefreshToken = errors.New(
+	"invalid refresh token",
+)
 
-var ErrTelegramUserNotLinked = errors.New("telegram user is not linked")
+var ErrTelegramLinkCodeNotFound = errors.New(
+	"telegram link code not found or expired",
+)
 
-var ErrInvalidTelegramUserID = errors.New("invalid telegram user id")
+var ErrTelegramAccountAlreadyLinked = errors.New(
+	"telegram account already linked",
+)
+
+var ErrMovieTrackerAccountAlreadyLinked = errors.New(
+	"movietracker account already linked to telegram",
+)
+
+var ErrTelegramUserNotLinked = errors.New(
+	"telegram user is not linked",
+)
+
+var ErrInvalidTelegramUserID = errors.New(
+	"invalid telegram user id",
+)

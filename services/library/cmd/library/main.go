@@ -9,99 +9,163 @@ import (
 	"syscall"
 	"time"
 
+	_ "movie-platform/library/docs"
+
 	"movie-platform/library/internal/config"
 	"movie-platform/library/internal/movies"
+	"movie-platform/library/internal/outbox"
 	librarykafka "movie-platform/library/internal/platform/kafka"
 	librarypostgres "movie-platform/library/internal/platform/postgres"
 	httptransport "movie-platform/library/internal/transport/http"
 
-	_ "movie-platform/library/docs"
-
 	"github.com/joho/godotenv"
 )
 
-// @title Movie Library API
-// @version 1.0
-// @description API for managing user's movie library.
-// @host localhost:8081
-// @BasePath /
-// @securityDefinitions.apikey BearerAuth
-// @in header
-// @name Authorization
-// @description Type "Bearer" followed by a space and JWT token. Example: "Bearer eyJhbGciOi..."
 func main() {
 	_ = godotenv.Load()
 
-	cfg, err := config.Load()
+	cfg, err :=
+		config.Load()
+
 	if err != nil {
-		log.Println("ошибка загрузки config:", err)
+		log.Printf(
+			"config error: %v",
+			err,
+		)
+
 		return
 	}
 
-	db, err := librarypostgres.NewConnection(
-		context.Background(),
-		cfg.DatabaseURL,
-	)
+	db, err :=
+		librarypostgres.NewConnection(
+			context.Background(),
+			cfg.DatabaseURL,
+		)
+
 	if err != nil {
-		log.Println("ошибка подключения к БД:", err)
+		log.Printf(
+			"database connection error: %v",
+			err,
+		)
+
 		return
 	}
+
 	defer db.Close()
 
-	kafkaProducer, err := librarykafka.NewProducer(
-		cfg.KafkaBroker,
-		cfg.KafkaTopic,
-	)
+	kafkaProducer, err :=
+		librarykafka.NewProducer(
+			cfg.KafkaBroker,
+			cfg.KafkaTopic,
+		)
+
 	if err != nil {
-		log.Println("ошибка создания Kafka producer:", err)
+		log.Printf(
+			"Kafka producer error: %v",
+			err,
+		)
+
 		return
 	}
+
 	defer kafkaProducer.Close()
 
-	movieRepo := movies.NewRepository(db)
+	outboxRepository :=
+		outbox.NewRepository(
+			db,
+		)
 
-	movieService := movies.NewService(
-		movieRepo,
-		kafkaProducer,
-	)
+	movieRepository :=
+		movies.NewRepository(
+			db,
+		)
 
-	movieHandler := movies.NewHandler(
-		movieService,
-	)
+	transactionalMovieRepository :=
+		movies.NewTransactionalRepository(
+			db,
+			outboxRepository,
+		)
 
-	handler := httptransport.NewHandler(
-		db,
-		movieService,
-	)
+	movieService :=
+		movies.NewService(
+			movieRepository,
+			transactionalMovieRepository,
+		)
 
-	router := httptransport.NewRouter(
-		handler,
-		movieHandler,
-		cfg.JWTSecret,
-	)
+	movieHandler :=
+		movies.NewHandler(
+			movieService,
+		)
 
-	addr := ":" + cfg.HTTPPort
+	handler :=
+		httptransport.NewHandler(
+			db,
+			movieService,
+		)
 
-	log.Println("Сервер запущен на", addr)
+	router :=
+		httptransport.NewRouter(
+			handler,
+			movieHandler,
+			cfg.JWTSecret,
+			cfg.JWTIssuer,
+			cfg.JWTAudience,
+			cfg.EnrichmentServiceSecret,
+		)
 
-	server := &http.Server{
-		Addr:    addr,
-		Handler: router,
-	}
+	addr :=
+		":" + cfg.HTTPPort
 
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
+	server :=
+		&http.Server{
+			Addr: addr,
+
+			Handler: router,
+
+			ReadHeaderTimeout: 5 * time.Second,
+
+			ReadTimeout: 15 * time.Second,
+
+			WriteTimeout: 30 * time.Second,
+
+			IdleTimeout: 60 * time.Second,
+
+			MaxHeaderBytes: 1 << 20,
+		}
+
+	ctx, stop :=
+		signal.NotifyContext(
+			context.Background(),
+			os.Interrupt,
+			syscall.SIGTERM,
+		)
+
 	defer stop()
 
-	go func() {
-		err := server.ListenAndServe()
+	outboxWorker :=
+		outbox.NewWorker(
+			outboxRepository,
+			kafkaProducer,
+		)
 
-		if err != nil && err != http.ErrServerClosed {
+	go outboxWorker.Run(
+		ctx,
+	)
+
+	go func() {
+		log.Println(
+			"library service started on",
+			addr,
+		)
+
+		err :=
+			server.ListenAndServe()
+
+		if err != nil &&
+			err != http.ErrServerClosed {
+
 			log.Printf(
-				"ошибка HTTP-сервера: %v",
+				"HTTP server error: %v",
 				err,
 			)
 		}
@@ -109,21 +173,31 @@ func main() {
 
 	<-ctx.Done()
 
-	log.Println("получен сигнал завершения")
-
-	shutdownCtx, cancel := context.WithTimeout(
-		context.Background(),
-		5*time.Second,
+	log.Println(
+		"shutdown signal received",
 	)
+
+	shutdownCtx, cancel :=
+		context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+
 	defer cancel()
 
-	err = server.Shutdown(shutdownCtx)
+	err =
+		server.Shutdown(
+			shutdownCtx,
+		)
+
 	if err != nil {
 		log.Printf(
-			"ошибка остановки HTTP-сервера: %v",
+			"HTTP server shutdown error: %v",
 			err,
 		)
 	}
 
-	log.Println("HTTP-сервер остановлен")
+	log.Println(
+		"library service stopped",
+	)
 }

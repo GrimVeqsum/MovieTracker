@@ -14,12 +14,15 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load()
+	cfg, err :=
+		config.Load()
+
 	if err != nil {
-		log.Println(
-			"config error:",
+		log.Printf(
+			"config error: %v",
 			err,
 		)
+
 		return
 	}
 
@@ -60,6 +63,16 @@ func main() {
 		&http.Server{
 			Addr:    addr,
 			Handler: router,
+
+			ReadHeaderTimeout: 5 * time.Second,
+
+			ReadTimeout: 15 * time.Second,
+
+			WriteTimeout: 30 * time.Second,
+
+			IdleTimeout: 60 * time.Second,
+
+			MaxHeaderBytes: 1 << 20,
 		}
 
 	ctx, stop :=
@@ -90,10 +103,6 @@ func main() {
 
 	<-ctx.Done()
 
-	log.Println(
-		"shutdown signal received",
-	)
-
 	shutdownCtx, cancel :=
 		context.WithTimeout(
 			context.Background(),
@@ -112,8 +121,4 @@ func main() {
 			err,
 		)
 	}
-
-	log.Println(
-		"gateway service stopped",
-	)
 }

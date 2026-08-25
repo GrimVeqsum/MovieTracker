@@ -34,11 +34,15 @@ var (
 	)
 
 	ErrTelegramNotLinked = errors.New(
-		"telegram account is not linked",
+		"telegram user is not linked",
 	)
 
 	ErrMovieNotFound = errors.New(
 		"movie not found",
+	)
+
+	ErrLibraryUnauthorized = errors.New(
+		"library authorization failed",
 	)
 )
 
@@ -48,22 +52,42 @@ type Genre struct {
 }
 
 type Movie struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	ReleaseYear *int   `json:"release_year"`
+	ID              string `json:"id"`
+	UserID          string `json:"user_id"`
+	Title           string `json:"title"`
+	NormalizedTitle string `json:"normalized_title"`
 
-	OriginalTitle  *string `json:"original_title,omitempty"`
-	Description    *string `json:"description,omitempty"`
-	PosterURL      *string `json:"poster_url,omitempty"`
-	RuntimeMinutes *int    `json:"runtime_minutes,omitempty"`
+	ReleaseYear *int `json:"release_year"`
 
-	MetadataStatus string `json:"metadata_status"`
+	ExternalID       *string `json:"external_id,omitempty"`
+	MetadataProvider *string `json:"metadata_provider,omitempty"`
+	OriginalTitle    *string `json:"original_title,omitempty"`
+	Description      *string `json:"description,omitempty"`
+	PosterURL        *string `json:"poster_url,omitempty"`
+	RuntimeMinutes   *int    `json:"runtime_minutes,omitempty"`
+
+	MetadataStatus string  `json:"metadata_status"`
+	MetadataError  *string `json:"metadata_error,omitempty"`
 
 	Genres []Genre `json:"genres,omitempty"`
 
 	Status string  `json:"status"`
 	Rating *int    `json:"rating"`
 	Review *string `json:"review"`
+
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	WatchedAt *time.Time `json:"watched_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+}
+
+type apiError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type apiErrorResponse struct {
+	Error apiError `json:"error"`
 }
 
 type Client struct {
@@ -124,7 +148,8 @@ func (client *Client) LinkTelegram(
 		Code           string `json:"code"`
 		TelegramUserID int64  `json:"telegram_user_id"`
 	}{
-		Code:           code,
+		Code: code,
+
 		TelegramUserID: telegramUserID,
 	}
 
@@ -187,15 +212,8 @@ func (client *Client) LinkTelegram(
 		return nil
 	}
 
-	apiErr, err :=
-		decodeAPIError(resp.Body)
-
-	if err != nil {
-		return fmt.Errorf(
-			"auth-service returned status %d",
-			resp.StatusCode,
-		)
-	}
+	apiErr, rawBody :=
+		readAPIError(resp)
 
 	switch apiErr.Code {
 	case "invalid_link_code":
@@ -215,219 +233,16 @@ func (client *Client) LinkTelegram(
 
 	default:
 		return fmt.Errorf(
-			"auth-service returned %s: %s",
+			"auth-service returned status %d, code=%s, message=%s: %s",
+			resp.StatusCode,
 			apiErr.Code,
 			apiErr.Message,
+			rawBody,
 		)
 	}
 }
 
-func (client *Client) GetMovies(
-	ctx context.Context,
-	telegramUserID int64,
-) ([]Movie, error) {
-	accessToken, err :=
-		client.getTelegramAccessToken(
-			ctx,
-			telegramUserID,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	requestURL :=
-		client.libraryURL +
-			"/movies"
-
-	req, err :=
-		http.NewRequestWithContext(
-			ctx,
-			http.MethodGet,
-			requestURL,
-			nil,
-		)
-
-	if err != nil {
-		return nil,
-			fmt.Errorf(
-				"create movies request: %w",
-				err,
-			)
-	}
-
-	req.Header.Set(
-		"Authorization",
-		"Bearer "+accessToken,
-	)
-
-	resp, err :=
-		client.httpClient.Do(req)
-
-	if err != nil {
-		return nil,
-			fmt.Errorf(
-				"movies request failed: %w",
-				err,
-			)
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode !=
-		http.StatusOK {
-
-		apiErr, decodeErr :=
-			decodeAPIError(
-				resp.Body,
-			)
-
-		if decodeErr == nil {
-			return nil,
-				fmt.Errorf(
-					"library-service returned %s: %s",
-					apiErr.Code,
-					apiErr.Message,
-				)
-		}
-
-		return nil,
-			fmt.Errorf(
-				"library-service returned status %d",
-				resp.StatusCode,
-			)
-	}
-
-	var movies []Movie
-
-	err =
-		json.NewDecoder(
-			io.LimitReader(
-				resp.Body,
-				1024*1024,
-			),
-		).Decode(
-			&movies,
-		)
-
-	if err != nil {
-		return nil,
-			fmt.Errorf(
-				"decode movies response: %w",
-				err,
-			)
-	}
-
-	return movies, nil
-}
-
-func (client *Client) GetRandomMovie(
-	ctx context.Context,
-	telegramUserID int64,
-) (*Movie, error) {
-	accessToken, err :=
-		client.getTelegramAccessToken(
-			ctx,
-			telegramUserID,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	requestURL :=
-		client.libraryURL +
-			"/movies/random"
-
-	req, err :=
-		http.NewRequestWithContext(
-			ctx,
-			http.MethodGet,
-			requestURL,
-			nil,
-		)
-
-	if err != nil {
-		return nil,
-			fmt.Errorf(
-				"create random movie request: %w",
-				err,
-			)
-	}
-
-	req.Header.Set(
-		"Authorization",
-		"Bearer "+accessToken,
-	)
-
-	resp, err :=
-		client.httpClient.Do(req)
-
-	if err != nil {
-		return nil,
-			fmt.Errorf(
-				"random movie request failed: %w",
-				err,
-			)
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode ==
-		http.StatusNotFound {
-
-		return nil,
-			ErrMovieNotFound
-	}
-
-	if resp.StatusCode !=
-		http.StatusOK {
-
-		apiErr, decodeErr :=
-			decodeAPIError(
-				resp.Body,
-			)
-
-		if decodeErr == nil {
-			return nil,
-				fmt.Errorf(
-					"library-service returned %s: %s",
-					apiErr.Code,
-					apiErr.Message,
-				)
-		}
-
-		return nil,
-			fmt.Errorf(
-				"library-service returned status %d",
-				resp.StatusCode,
-			)
-	}
-
-	var movie Movie
-
-	err =
-		json.NewDecoder(
-			io.LimitReader(
-				resp.Body,
-				1024*1024,
-			),
-		).Decode(
-			&movie,
-		)
-
-	if err != nil {
-		return nil,
-			fmt.Errorf(
-				"decode random movie response: %w",
-				err,
-			)
-	}
-
-	return &movie, nil
-}
-
-func (client *Client) getTelegramAccessToken(
+func (client *Client) TelegramToken(
 	ctx context.Context,
 	telegramUserID int64,
 ) (string, error) {
@@ -443,11 +258,10 @@ func (client *Client) getTelegramAccessToken(
 		)
 
 	if err != nil {
-		return "",
-			fmt.Errorf(
-				"marshal telegram token request: %w",
-				err,
-			)
+		return "", fmt.Errorf(
+			"marshal telegram token request: %w",
+			err,
+		)
 	}
 
 	requestURL :=
@@ -463,11 +277,10 @@ func (client *Client) getTelegramAccessToken(
 		)
 
 	if err != nil {
-		return "",
-			fmt.Errorf(
-				"create telegram token request: %w",
-				err,
-			)
+		return "", fmt.Errorf(
+			"create telegram token request: %w",
+			err,
+		)
 	}
 
 	req.Header.Set(
@@ -484,11 +297,10 @@ func (client *Client) getTelegramAccessToken(
 		client.httpClient.Do(req)
 
 	if err != nil {
-		return "",
-			fmt.Errorf(
-				"telegram token request failed: %w",
-				err,
-			)
+		return "", fmt.Errorf(
+			"telegram token request failed: %w",
+			err,
+		)
 	}
 
 	defer resp.Body.Close()
@@ -496,18 +308,8 @@ func (client *Client) getTelegramAccessToken(
 	if resp.StatusCode !=
 		http.StatusOK {
 
-		apiErr, decodeErr :=
-			decodeAPIError(
-				resp.Body,
-			)
-
-		if decodeErr != nil {
-			return "",
-				fmt.Errorf(
-					"auth-service returned status %d",
-					resp.StatusCode,
-				)
-		}
+		apiErr, rawBody :=
+			readAPIError(resp)
 
 		switch apiErr.Code {
 		case "telegram_not_linked":
@@ -523,49 +325,279 @@ func (client *Client) getTelegramAccessToken(
 				ErrUnauthorizedService
 
 		default:
-			return "",
-				fmt.Errorf(
-					"auth-service returned %s: %s",
-					apiErr.Code,
-					apiErr.Message,
-				)
+			return "", fmt.Errorf(
+				"auth-service returned status %d, code=%s, message=%s: %s",
+				resp.StatusCode,
+				apiErr.Code,
+				apiErr.Message,
+				rawBody,
+			)
 		}
 	}
 
-	var tokenResponse struct {
+	var responseBody struct {
 		AccessToken string `json:"access_token"`
 		TokenType   string `json:"token_type"`
 	}
 
 	err =
 		json.NewDecoder(
-			io.LimitReader(
-				resp.Body,
-				4096,
-			),
+			resp.Body,
 		).Decode(
-			&tokenResponse,
+			&responseBody,
 		)
 
 	if err != nil {
-		return "",
-			fmt.Errorf(
-				"decode telegram token response: %w",
-				err,
-			)
+		return "", fmt.Errorf(
+			"decode telegram token response: %w",
+			err,
+		)
 	}
 
 	if strings.TrimSpace(
-		tokenResponse.AccessToken,
+		responseBody.AccessToken,
 	) == "" {
-		return "",
-			errors.New(
-				"auth-service returned empty access token",
-			)
+		return "", errors.New(
+			"auth-service returned empty access token",
+		)
 	}
 
-	return tokenResponse.AccessToken,
-		nil
+	return responseBody.AccessToken, nil
+}
+
+func (client *Client) getTelegramAccessToken(
+	ctx context.Context,
+	telegramUserID int64,
+) (string, error) {
+	return client.TelegramToken(
+		ctx,
+		telegramUserID,
+	)
+}
+
+func (client *Client) ListMovies(
+	ctx context.Context,
+	telegramUserID int64,
+) ([]Movie, error) {
+	accessToken, err :=
+		client.TelegramToken(
+			ctx,
+			telegramUserID,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req, err :=
+		client.newLibraryRequest(
+			ctx,
+			http.MethodGet,
+			"/movies",
+			accessToken,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err :=
+		client.httpClient.Do(req)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"library movie list request failed: %w",
+			err,
+		)
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode !=
+		http.StatusOK {
+
+		apiErr, rawBody :=
+			readAPIError(resp)
+
+		if resp.StatusCode ==
+			http.StatusUnauthorized {
+
+			return nil,
+				ErrLibraryUnauthorized
+		}
+
+		return nil, fmt.Errorf(
+			"library-service returned status %d, code=%s, message=%s: %s",
+			resp.StatusCode,
+			apiErr.Code,
+			apiErr.Message,
+			rawBody,
+		)
+	}
+
+	var movies []Movie
+
+	err =
+		json.NewDecoder(
+			io.LimitReader(
+				resp.Body,
+				4*1024*1024,
+			),
+		).Decode(
+			&movies,
+		)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"decode movie list: %w",
+			err,
+		)
+	}
+
+	return movies, nil
+}
+
+func (client *Client) GetMovies(
+	ctx context.Context,
+	telegramUserID int64,
+) ([]Movie, error) {
+	return client.ListMovies(
+		ctx,
+		telegramUserID,
+	)
+}
+
+func (client *Client) RandomMovie(
+	ctx context.Context,
+	telegramUserID int64,
+) (*Movie, error) {
+	accessToken, err :=
+		client.TelegramToken(
+			ctx,
+			telegramUserID,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req, err :=
+		client.newLibraryRequest(
+			ctx,
+			http.MethodGet,
+			"/movies/random",
+			accessToken,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err :=
+		client.httpClient.Do(req)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"library random movie request failed: %w",
+			err,
+		)
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode !=
+		http.StatusOK {
+
+		apiErr, rawBody :=
+			readAPIError(resp)
+
+		switch {
+		case resp.StatusCode ==
+			http.StatusNotFound:
+
+			return nil,
+				ErrMovieNotFound
+
+		case resp.StatusCode ==
+			http.StatusUnauthorized:
+
+			return nil,
+				ErrLibraryUnauthorized
+
+		default:
+			return nil, fmt.Errorf(
+				"library-service returned status %d, code=%s, message=%s: %s",
+				resp.StatusCode,
+				apiErr.Code,
+				apiErr.Message,
+				rawBody,
+			)
+		}
+	}
+
+	var movie Movie
+
+	err =
+		json.NewDecoder(
+			io.LimitReader(
+				resp.Body,
+				1024*1024,
+			),
+		).Decode(
+			&movie,
+		)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"decode random movie: %w",
+			err,
+		)
+	}
+
+	return &movie, nil
+}
+
+func (client *Client) GetRandomMovie(
+	ctx context.Context,
+	telegramUserID int64,
+) (*Movie, error) {
+	return client.RandomMovie(
+		ctx,
+		telegramUserID,
+	)
+}
+
+func (client *Client) newLibraryRequest(
+	ctx context.Context,
+	method string,
+	path string,
+	accessToken string,
+) (*http.Request, error) {
+	requestURL :=
+		client.libraryURL +
+			path
+
+	req, err :=
+		http.NewRequestWithContext(
+			ctx,
+			method,
+			requestURL,
+			nil,
+		)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"create library request: %w",
+			err,
+		)
+	}
+
+	req.Header.Set(
+		"Authorization",
+		"Bearer "+accessToken,
+	)
+
+	return req, nil
 }
 
 func (client *Client) checkReady(
@@ -625,25 +657,47 @@ func (client *Client) checkReady(
 	return nil
 }
 
-type apiError struct {
-	Code    string
-	Message string
+func readAPIError(
+	resp *http.Response,
+) (apiError, string) {
+	body, err :=
+		io.ReadAll(
+			io.LimitReader(
+				resp.Body,
+				4096,
+			),
+		)
+
+	if err != nil {
+		return apiError{}, ""
+	}
+
+	rawBody :=
+		strings.TrimSpace(
+			string(body),
+		)
+
+	var response apiErrorResponse
+
+	_ =
+		json.Unmarshal(
+			body,
+			&response,
+		)
+
+	return response.Error,
+		rawBody
 }
 
 func decodeAPIError(
-	body io.Reader,
+	reader io.Reader,
 ) (apiError, error) {
-	var response struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
+	var response apiErrorResponse
 
 	err :=
 		json.NewDecoder(
 			io.LimitReader(
-				body,
+				reader,
 				4096,
 			),
 		).Decode(
@@ -654,8 +708,5 @@ func decodeAPIError(
 		return apiError{}, err
 	}
 
-	return apiError{
-		Code:    response.Error.Code,
-		Message: response.Error.Message,
-	}, nil
+	return response.Error, nil
 }

@@ -26,6 +26,13 @@ type BackendClient interface {
 		telegramUserID int64,
 	) error
 
+	AddMovie(
+		ctx context.Context,
+		telegramUserID int64,
+		title string,
+		releaseYear *int,
+	) (*backend.Movie, error)
+
 	GetMovies(
 		ctx context.Context,
 		telegramUserID int64,
@@ -34,13 +41,6 @@ type BackendClient interface {
 	GetRandomMovie(
 		ctx context.Context,
 		telegramUserID int64,
-	) (*backend.Movie, error)
-
-	AddMovie(
-		ctx context.Context,
-		telegramUserID int64,
-		title string,
-		releaseYear *int,
 	) (*backend.Movie, error)
 
 	MakeWatched(
@@ -120,16 +120,20 @@ func (bot *Bot) Run(
 		}
 
 		for _, update := range updates {
-			offset = update.UpdateID + 1
+
+			offset =
+				update.UpdateID + 1
 
 			if update.Message == nil {
 				continue
 			}
 
-			if err := bot.handleMessage(
-				ctx,
-				update.Message,
-			); err != nil {
+			if err :=
+				bot.handleMessage(
+					ctx,
+					update.Message,
+				); err != nil {
+
 				log.Printf(
 					"handle message error: %v",
 					err,
@@ -158,7 +162,9 @@ func (bot *Bot) handleMessage(
 		text,
 	)
 
-	fields := strings.Fields(text)
+	fields :=
+		strings.Fields(text)
+
 	if len(fields) == 0 {
 		return nil
 	}
@@ -168,11 +174,14 @@ func (bot *Bot) handleMessage(
 			fields[0],
 		)
 
-	if index := strings.Index(
-		command,
-		"@",
-	); index >= 0 {
-		command = command[:index]
+	if index :=
+		strings.Index(
+			command,
+			"@",
+		); index >= 0 {
+
+		command =
+			command[:index]
 	}
 
 	switch command {
@@ -187,18 +196,17 @@ func (bot *Bot) handleMessage(
 		return bot.telegramClient.SendMessage(
 			ctx,
 			message.Chat.ID,
-			"Команды:\n\n"+
-				"/add Интерстеллар\n"+
-				"/add Интерстеллар | 2014\n\n"+
-				"/movies\n"+
-				"/random\n\n"+
-				"/watched 1 9\n"+
-				"/watched 1 9 | Отличный фильм\n"+
-				"/unwatched 1\n"+
-				"/delete 1\n\n"+
-				"Номер фильма берётся из /movies.\n\n"+
-				"/link CODE\n"+
-				"/status",
+			"MovieTracker Bot\n\n"+
+				"/add НАЗВАНИЕ — добавить фильм\n"+
+				"/add НАЗВАНИЕ | ГОД — добавить фильм с годом\n"+
+				"/movies — список фильмов\n"+
+				"/random — случайный фильм\n"+
+				"/watched N RATING — отметить просмотренным\n"+
+				"/watched N RATING | REVIEW — добавить отзыв\n"+
+				"/unwatched N — вернуть в непросмотренные\n"+
+				"/delete N — удалить фильм\n"+
+				"/link CODE — привязать аккаунт\n"+
+				"/status — проверить backend",
 		)
 
 	case "/ping":
@@ -233,6 +241,13 @@ func (bot *Bot) handleMessage(
 			fields,
 		)
 
+	case "/add":
+		return bot.handleAdd(
+			ctx,
+			message,
+			text,
+		)
+
 	case "/movies":
 		return bot.handleMovies(
 			ctx,
@@ -243,13 +258,6 @@ func (bot *Bot) handleMessage(
 		return bot.handleRandom(
 			ctx,
 			message,
-		)
-
-	case "/add":
-		return bot.handleAdd(
-			ctx,
-			message,
-			text,
 		)
 
 	case "/watched":

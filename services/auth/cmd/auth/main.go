@@ -17,21 +17,14 @@ import (
 	"movie-platform/auth/internal/users"
 )
 
-// @title Movie Auth API
-// @version 1.0
-// @description API for user registration, login and logout.
-// @host localhost:8082
-// @BasePath /
-// @securityDefinitions.apikey BearerAuth
-// @in header
-// @name Authorization
-// @description Type "Bearer" followed by a space and JWT token.
 func main() {
 	cfg, err :=
 		config.Load()
 
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(
+			err,
+		)
 	}
 
 	db, err :=
@@ -50,20 +43,27 @@ func main() {
 	defer db.Close()
 
 	handler :=
-		httptransport.NewHandler(db)
+		httptransport.NewHandler(
+			db,
+		)
 
 	userRepo :=
-		users.NewRepository(db)
+		users.NewRepository(
+			db,
+		)
 
 	userService :=
 		users.NewService(
 			userRepo,
 			cfg.JWTSecret,
+			cfg.JWTIssuer,
+			cfg.JWTAudience,
 		)
 
 	userHandler :=
 		users.NewHandler(
 			userService,
+			cfg.CookieSecure,
 		)
 
 	telegramHandler :=
@@ -72,15 +72,28 @@ func main() {
 			cfg.TelegramServiceSecret,
 		)
 
+	addr :=
+		":" + cfg.HTTPPort
+
 	server :=
 		&http.Server{
-			Addr: ":" + cfg.HTTPPort,
+			Addr: addr,
 
 			Handler: httptransport.NewRouter(
 				handler,
 				userHandler,
 				telegramHandler,
 			),
+
+			ReadHeaderTimeout: 5 * time.Second,
+
+			ReadTimeout: 15 * time.Second,
+
+			WriteTimeout: 30 * time.Second,
+
+			IdleTimeout: 60 * time.Second,
+
+			MaxHeaderBytes: 1 << 20,
 		}
 
 	ctx, stop :=
@@ -94,8 +107,8 @@ func main() {
 
 	go func() {
 		log.Println(
-			"auth service started on :" +
-				cfg.HTTPPort,
+			"auth service started on",
+			addr,
 		)
 
 		if err :=

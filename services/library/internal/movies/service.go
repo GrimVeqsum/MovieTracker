@@ -9,21 +9,23 @@ import (
 )
 
 type Service struct {
-	repo      *Repository
-	publisher EventPublisher
+	repo *Repository
+
+	writer *TransactionalRepository
 }
 
 func NewService(
 	repo *Repository,
-	publisher EventPublisher,
+	writer *TransactionalRepository,
 ) *Service {
 	return &Service{
-		repo:      repo,
-		publisher: publisher,
+		repo: repo,
+
+		writer: writer,
 	}
 }
 
-// Get movies list
+// List movies
 
 type ListParams struct {
 	UserID string
@@ -33,16 +35,21 @@ func (service *Service) List(
 	ctx context.Context,
 	params ListParams,
 ) ([]Movie, error) {
-	return service.repo.List(ctx, ListMovieParams{
-		UserID: params.UserID,
-	})
+	return service.repo.List(
+		ctx,
+		ListMovieParams{
+			UserID: params.UserID,
+		},
+	)
 }
 
 // Create movie
 
 type CreateParams struct {
-	UserID      string
-	Title       string
+	UserID string
+
+	Title string
+
 	ReleaseYear *int
 }
 
@@ -50,40 +57,54 @@ func (service *Service) Create(
 	ctx context.Context,
 	params CreateParams,
 ) (*Movie, error) {
-	title := strings.TrimSpace(params.Title)
+	title := strings.TrimSpace(
+		params.Title,
+	)
 
 	if title == "" {
-		return nil, ErrMovieTitleRequired
+		return nil,
+			ErrMovieTitleRequired
 	}
 
-	normalizedTitle := strings.ToLower(title)
+	normalizedTitle := strings.ToLower(
+		title,
+	)
 
-	movie, err := service.repo.Create(ctx, CreateMovieParams{
-		UserID:          params.UserID,
-		Title:           title,
-		NormalizedTitle: normalizedTitle,
-		ReleaseYear:     params.ReleaseYear,
-	})
-	if err != nil {
-		return nil, err
-	}
+	movieID := uuid.NewString()
 
 	event := Event{
-		EventID:     uuid.NewString(),
-		Version:     1,
-		Type:        "MovieCreated",
-		MovieID:     movie.ID,
-		UserID:      movie.UserID,
-		Title:       movie.Title,
-		ReleaseYear: movie.ReleaseYear,
-		OccurredAt:  movie.CreatedAt.UTC(),
+		EventID: uuid.NewString(),
+
+		Version: 1,
+
+		Type: "MovieCreated",
+
+		MovieID: movieID,
+
+		UserID: params.UserID,
+
+		Title: title,
+
+		ReleaseYear: params.ReleaseYear,
+
+		OccurredAt: time.Now().UTC(),
 	}
 
-	if err := service.publisher.Publish(ctx, event); err != nil {
-		return nil, err
-	}
+	return service.writer.Create(
+		ctx,
+		CreateMovieWithEventParams{
+			ID: movieID,
 
-	return movie, nil
+			UserID: params.UserID,
+
+			Title: title,
+
+			NormalizedTitle: normalizedTitle,
+
+			ReleaseYear: params.ReleaseYear,
+		},
+		event,
+	)
 }
 
 // Delete movie
@@ -97,26 +118,29 @@ func (service *Service) Delete(
 	ctx context.Context,
 	params DeleteParams,
 ) error {
-	err := service.repo.Delete(ctx, DeleteMovieParams{
-		UserID: params.UserID,
-		ID:     params.ID,
-	})
-	if err != nil {
-		return err
-	}
-
 	event := Event{
-		Type:       "MovieDeleted",
-		MovieID:    params.ID,
-		UserID:     params.UserID,
+		EventID: uuid.NewString(),
+
+		Version: 1,
+
+		Type: "MovieDeleted",
+
+		MovieID: params.ID,
+
+		UserID: params.UserID,
+
 		OccurredAt: time.Now().UTC(),
 	}
 
-	if err := service.publisher.Publish(ctx, event); err != nil {
-		return err
-	}
+	return service.writer.Delete(
+		ctx,
+		DeleteMovieParams{
+			UserID: params.UserID,
 
-	return nil
+			ID: params.ID,
+		},
+		event,
+	)
 }
 
 // Get movie by id
@@ -130,10 +154,14 @@ func (service *Service) GetOne(
 	ctx context.Context,
 	params GetParams,
 ) (*Movie, error) {
-	return service.repo.GetOne(ctx, GetOneParams{
-		UserID: params.UserID,
-		ID:     params.ID,
-	})
+	return service.repo.GetOne(
+		ctx,
+		GetOneParams{
+			UserID: params.UserID,
+
+			ID: params.ID,
+		},
+	)
 }
 
 // Make movie watched
@@ -149,35 +177,48 @@ func (service *Service) MakeWatched(
 	ctx context.Context,
 	params MakeWatchedParams,
 ) (*Movie, error) {
-	if params.Rating > 10 || params.Rating < 1 {
-		return nil, ErrRatingIsOutOfRange
+	if params.Rating > 10 ||
+		params.Rating < 1 {
+
+		return nil,
+			ErrRatingIsOutOfRange
 	}
 
-	movie, err := service.repo.UpdateStatus(ctx, UpdateMovieStatusParams{
-		ID:     params.ID,
-		UserID: params.UserID,
-		Status: "watched",
-		Rating: &params.Rating,
-		Review: params.Review,
-	})
-	if err != nil {
-		return nil, err
-	}
+	rating := params.Rating
 
 	event := Event{
-		Type:       "MovieWatched",
-		MovieID:    movie.ID,
-		UserID:     movie.UserID,
-		Rating:     movie.Rating,
-		Review:     movie.Review,
+		EventID: uuid.NewString(),
+
+		Version: 1,
+
+		Type: "MovieWatched",
+
+		MovieID: params.ID,
+
+		UserID: params.UserID,
+
+		Rating: &rating,
+
+		Review: params.Review,
+
 		OccurredAt: time.Now().UTC(),
 	}
 
-	if err := service.publisher.Publish(ctx, event); err != nil {
-		return nil, err
-	}
+	return service.writer.UpdateStatus(
+		ctx,
+		UpdateMovieStatusParams{
+			ID: params.ID,
 
-	return movie, nil
+			UserID: params.UserID,
+
+			Status: "watched",
+
+			Rating: &rating,
+
+			Review: params.Review,
+		},
+		event,
+	)
 }
 
 // Make movie unwatched
@@ -191,29 +232,35 @@ func (service *Service) MakeUnwatched(
 	ctx context.Context,
 	params MakeUnwatchedParams,
 ) (*Movie, error) {
-	movie, err := service.repo.UpdateStatus(ctx, UpdateMovieStatusParams{
-		ID:     params.ID,
-		UserID: params.UserID,
-		Status: "unwatched",
-		Rating: nil,
-		Review: nil,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	event := Event{
-		Type:       "MovieUnwatched",
-		MovieID:    movie.ID,
-		UserID:     movie.UserID,
+		EventID: uuid.NewString(),
+
+		Version: 1,
+
+		Type: "MovieUnwatched",
+
+		MovieID: params.ID,
+
+		UserID: params.UserID,
+
 		OccurredAt: time.Now().UTC(),
 	}
 
-	if err := service.publisher.Publish(ctx, event); err != nil {
-		return nil, err
-	}
+	return service.writer.UpdateStatus(
+		ctx,
+		UpdateMovieStatusParams{
+			ID: params.ID,
 
-	return movie, nil
+			UserID: params.UserID,
+
+			Status: "unwatched",
+
+			Rating: nil,
+
+			Review: nil,
+		},
+		event,
+	)
 }
 
 // Get random movie
@@ -226,16 +273,22 @@ func (service *Service) GetRandom(
 	ctx context.Context,
 	params GetRandomParams,
 ) (*Movie, error) {
-	return service.repo.GetRandom(ctx, GetRandomMovieParams{
-		UserID: params.UserID,
-	})
+	return service.repo.GetRandom(
+		ctx,
+		GetRandomMovieParams{
+			UserID: params.UserID,
+		},
+	)
 }
 
-//meta
+// Update metadata
 
 type UpdateMetadataServiceParams struct {
-	ID               string
-	UserID           string
+	EventID string
+
+	ID     string
+	UserID string
+
 	ExternalID       string
 	MetadataProvider string
 	OriginalTitle    string
@@ -250,19 +303,57 @@ func (service *Service) UpdateMetadata(
 	ctx context.Context,
 	params UpdateMetadataServiceParams,
 ) error {
-	return service.repo.UpdateMetadata(
+	return service.repo.UpdateMetadataIdempotent(
 		ctx,
-		UpdateMetadataParams{
-			ID:               params.ID,
-			UserID:           params.UserID,
-			ExternalID:       params.ExternalID,
+		UpdateMetadataIdempotentParams{
+			EventID: params.EventID,
+
+			ID: params.ID,
+
+			UserID: params.UserID,
+
+			ExternalID: params.ExternalID,
+
 			MetadataProvider: params.MetadataProvider,
-			OriginalTitle:    params.OriginalTitle,
-			Description:      params.Description,
-			ReleaseYear:      params.ReleaseYear,
-			PosterURL:        params.PosterURL,
-			RuntimeMinutes:   params.RuntimeMinutes,
-			Genres:           params.Genres,
+
+			OriginalTitle: params.OriginalTitle,
+
+			Description: params.Description,
+
+			ReleaseYear: params.ReleaseYear,
+
+			PosterURL: params.PosterURL,
+
+			RuntimeMinutes: params.RuntimeMinutes,
+
+			Genres: params.Genres,
+		},
+	)
+}
+
+// Mark metadata failed
+
+type MarkMetadataFailedServiceParams struct {
+	EventID string
+
+	ID     string
+	UserID string
+
+	Error string
+}
+
+func (service *Service) MarkMetadataFailed(
+	ctx context.Context,
+	params MarkMetadataFailedServiceParams,
+) error {
+	return service.repo.MarkMetadataFailed(
+		ctx,
+		MarkMetadataFailedParams{
+			ID: params.ID,
+
+			UserID: params.UserID,
+
+			Error: params.Error,
 		},
 	)
 }

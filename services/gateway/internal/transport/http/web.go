@@ -54,9 +54,12 @@ func (handler *WebHandler) Index(
 
 const indexHTML = `
 <!doctype html>
+
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
@@ -71,29 +74,39 @@ const indexHTML = `
 
         body {
             margin: 0;
+
             font-family:
                 -apple-system,
                 BlinkMacSystemFont,
                 "Segoe UI",
                 sans-serif;
+
             background: #f4f5f7;
+
             color: #1f2937;
         }
 
         .page {
             min-height: 100vh;
+
             display: flex;
+
             align-items: center;
             justify-content: center;
+
             padding: 24px;
         }
 
         .card {
             width: 100%;
             max-width: 430px;
-            background: white;
-            border-radius: 16px;
+
             padding: 32px;
+
+            background: white;
+
+            border-radius: 16px;
+
             box-shadow:
                 0 12px 35px
                 rgba(0, 0, 0, 0.08);
@@ -107,6 +120,7 @@ const indexHTML = `
         .subtitle {
             margin-top: 0;
             margin-bottom: 28px;
+
             color: #6b7280;
         }
 
@@ -116,33 +130,45 @@ const indexHTML = `
 
         label {
             display: block;
+
             margin-bottom: 6px;
+
             font-size: 14px;
             font-weight: 600;
         }
 
         input {
             width: 100%;
+
             padding: 11px 12px;
+
             border: 1px solid #d1d5db;
             border-radius: 8px;
+
             font-size: 15px;
         }
 
         input:focus {
             outline: none;
+
             border-color: #111827;
         }
 
         button,
-        .telegram-link {
+        .button-link {
             width: 100%;
+
             display: block;
+
+            padding: 12px 16px;
+
             border: 0;
             border-radius: 8px;
-            padding: 12px 16px;
+
             font-size: 15px;
+
             cursor: pointer;
+
             text-align: center;
             text-decoration: none;
         }
@@ -154,6 +180,7 @@ const indexHTML = `
 
         button.secondary {
             margin-top: 10px;
+
             background: #e5e7eb;
             color: #111827;
         }
@@ -167,40 +194,64 @@ const indexHTML = `
             cursor: wait;
         }
 
+        .telegram-link {
+            margin-top: 14px;
+
+            background: #229ed9;
+            color: white;
+        }
+
         .switch {
             margin-top: 20px;
+
             text-align: center;
+
             color: #6b7280;
+
             font-size: 14px;
         }
 
         .switch button {
             display: inline;
+
             width: auto;
+
             padding: 0;
+
             background: transparent;
+
             color: #111827;
+
             text-decoration: underline;
         }
 
         .message {
             display: none;
+
             margin-top: 18px;
+
             padding: 12px;
+
             border-radius: 8px;
+
             font-size: 14px;
+
             white-space: pre-line;
         }
 
         .message.error {
             display: block;
+
             background: #fee2e2;
+
             color: #991b1b;
         }
 
         .message.success {
             display: block;
+
             background: #dcfce7;
+
             color: #166534;
         }
 
@@ -210,25 +261,60 @@ const indexHTML = `
 
         .account-email {
             margin-bottom: 24px;
+
+            font-weight: 600;
+        }
+
+        .link-result {
+            display: none;
+
+            margin-top: 20px;
+
+            padding: 16px;
+
+            background: #f3f4f6;
+
+            border-radius: 8px;
+        }
+
+        .link-result-title {
+            margin-bottom: 8px;
+
+            font-size: 14px;
             font-weight: 600;
         }
 
         .link-code {
-            margin-top: 20px;
-            padding: 16px;
-            background: #f3f4f6;
-            border-radius: 8px;
-        }
+            margin: 0;
 
-        .link-code code {
-            font-size: 18px;
+            font-size: 21px;
             font-weight: 700;
         }
 
         .hint {
-            margin-top: 8px;
+            margin-top: 14px;
+
             font-size: 13px;
+
+            line-height: 1.5;
+
             color: #6b7280;
+        }
+
+        .command {
+            display: inline-block;
+
+            margin-top: 6px;
+
+            padding: 4px 6px;
+
+            border-radius: 4px;
+
+            background: #e5e7eb;
+
+            color: #111827;
+
+            font-family: monospace;
         }
     </style>
 </head>
@@ -236,11 +322,14 @@ const indexHTML = `
 <body>
 
 <div class="page">
+
     <main class="card">
 
         <section id="authSection">
 
-            <h1>MovieTracker</h1>
+            <h1>
+                MovieTracker
+            </h1>
 
             <p
                 id="authSubtitle"
@@ -252,6 +341,7 @@ const indexHTML = `
             <form id="authForm">
 
                 <div class="field">
+
                     <label for="email">
                         Email
                     </label>
@@ -262,9 +352,11 @@ const indexHTML = `
                         autocomplete="email"
                         required
                     >
+
                 </div>
 
                 <div class="field">
+
                     <label for="password">
                         Пароль
                     </label>
@@ -276,6 +368,7 @@ const indexHTML = `
                         minlength="8"
                         required
                     >
+
                 </div>
 
                 <button
@@ -288,6 +381,7 @@ const indexHTML = `
             </form>
 
             <div class="switch">
+
                 <span id="switchText">
                     Нет аккаунта?
                 </span>
@@ -298,6 +392,7 @@ const indexHTML = `
                 >
                     Зарегистрироваться
                 </button>
+
             </div>
 
             <div
@@ -313,7 +408,9 @@ const indexHTML = `
             class="account"
         >
 
-            <h1>MovieTracker</h1>
+            <h1>
+                MovieTracker
+            </h1>
 
             <p class="subtitle">
                 Аккаунт
@@ -334,23 +431,59 @@ const indexHTML = `
 
             <div
                 id="telegramResult"
-                class="link-code"
-                style="display:none"
+                class="link-result"
             >
-                <div>
-                    Код привязки:
+
+                <div class="link-result-title">
+                    Код привязки
                 </div>
 
-                <p>
-                    <code id="telegramCode"></code>
-                </p>
+                <p
+                    id="telegramCode"
+                    class="link-code"
+                ></p>
+
+                <a
+                    id="telegramLink"
+                    class="button-link telegram-link"
+                    href="#"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    Открыть бота в Telegram
+                </a>
 
                 <div class="hint">
-                    Если Telegram не открылся автоматически,
-                    отправь боту команду
-                    <strong id="telegramCommand"></strong>
+
+                    MovieTracker останется открыт
+                    в этой вкладке.
+
+                    <br><br>
+
+                    Если Telegram не открыл бота,
+                    найди
+
+                    <strong>
+                        @{{ .TelegramBotUsername }}
+                    </strong>
+
+                    вручную и отправь:
+
+                    <br>
+
+                    <span
+                        id="telegramCommand"
+                        class="command"
+                    ></span>
+
                 </div>
+
             </div>
+
+            <div
+                id="accountMessage"
+                class="message"
+            ></div>
 
             <button
                 id="logout"
@@ -360,104 +493,168 @@ const indexHTML = `
                 Выйти
             </button>
 
-            <div
-                id="accountMessage"
-                class="message"
-            ></div>
-
         </section>
 
     </main>
+
 </div>
 
+
 <script>
+
     const telegramBotUsername =
         {{ printf "%q" .TelegramBotUsername }};
 
+
     const authSection =
-        document.getElementById("authSection");
+        document.getElementById(
+            "authSection"
+        );
 
     const accountSection =
-        document.getElementById("accountSection");
+        document.getElementById(
+            "accountSection"
+        );
 
     const authForm =
-        document.getElementById("authForm");
+        document.getElementById(
+            "authForm"
+        );
 
     const emailInput =
-        document.getElementById("email");
+        document.getElementById(
+            "email"
+        );
 
     const passwordInput =
-        document.getElementById("password");
+        document.getElementById(
+            "password"
+        );
 
     const submitButton =
-        document.getElementById("submitButton");
+        document.getElementById(
+            "submitButton"
+        );
 
     const switchModeButton =
-        document.getElementById("switchMode");
+        document.getElementById(
+            "switchMode"
+        );
 
     const switchText =
-        document.getElementById("switchText");
+        document.getElementById(
+            "switchText"
+        );
 
     const authSubtitle =
-        document.getElementById("authSubtitle");
+        document.getElementById(
+            "authSubtitle"
+        );
 
     const authMessage =
-        document.getElementById("authMessage");
+        document.getElementById(
+            "authMessage"
+        );
 
     const accountMessage =
-        document.getElementById("accountMessage");
+        document.getElementById(
+            "accountMessage"
+        );
 
     const accountEmail =
-        document.getElementById("accountEmail");
+        document.getElementById(
+            "accountEmail"
+        );
 
     const connectTelegramButton =
-        document.getElementById("connectTelegram");
+        document.getElementById(
+            "connectTelegram"
+        );
 
     const telegramResult =
-        document.getElementById("telegramResult");
+        document.getElementById(
+            "telegramResult"
+        );
 
     const telegramCode =
-        document.getElementById("telegramCode");
+        document.getElementById(
+            "telegramCode"
+        );
 
     const telegramCommand =
-        document.getElementById("telegramCommand");
+        document.getElementById(
+            "telegramCommand"
+        );
+
+    const telegramLink =
+        document.getElementById(
+            "telegramLink"
+        );
 
     const logoutButton =
-        document.getElementById("logout");
+        document.getElementById(
+            "logout"
+        );
+
 
     let mode = "login";
 
 
-    function setMessage(element, text, type) {
-        element.textContent = text;
+    function setMessage(
+        element,
+        text,
+        type
+    ) {
+        element.textContent =
+            text;
+
         element.className =
             "message " + type;
     }
 
 
-    function clearMessage(element) {
-        element.textContent = "";
-        element.className = "message";
+    function clearMessage(
+        element
+    ) {
+        element.textContent =
+            "";
+
+        element.className =
+            "message";
     }
 
 
-    function showAccount(email) {
-        authSection.style.display = "none";
-        accountSection.style.display = "block";
+    function showAccount(
+        email
+    ) {
+        authSection.style.display =
+            "none";
 
-        accountEmail.textContent = email;
+        accountSection.style.display =
+            "block";
 
-        telegramResult.style.display = "none";
+        accountEmail.textContent =
+            email;
 
-        clearMessage(accountMessage);
+        clearMessage(
+            accountMessage
+        );
     }
 
 
     function showAuth() {
-        accountSection.style.display = "none";
-        authSection.style.display = "block";
+        accountSection.style.display =
+            "none";
 
-        clearMessage(authMessage);
+        authSection.style.display =
+            "block";
+
+        telegramResult.style.display =
+            "none";
+
+        clearMessage(
+            authMessage
+        );
     }
 
 
@@ -508,16 +705,21 @@ const indexHTML = `
         let data = null;
 
         try {
-            data = await response.json();
+            data =
+                await response.json();
         } catch (_) {
         }
 
         if (!response.ok) {
+
             const message =
                 data?.error?.message ||
-                "HTTP " + response.status;
+                "HTTP " +
+                response.status;
 
-            throw new Error(message);
+            throw new Error(
+                message
+            );
         }
 
         return data;
@@ -532,17 +734,19 @@ const indexHTML = `
             await requestJSON(
                 "/auth/login",
                 {
-                    method: "POST",
+                    method:
+                        "POST",
 
                     headers: {
                         "Content-Type":
                             "application/json"
                     },
 
-                    body: JSON.stringify({
-                        email,
-                        password
-                    })
+                    body:
+                        JSON.stringify({
+                            email,
+                            password
+                        })
                 }
             );
 
@@ -557,7 +761,9 @@ const indexHTML = `
             email
         );
 
-        showAccount(email);
+        showAccount(
+            email
+        );
     }
 
 
@@ -568,17 +774,19 @@ const indexHTML = `
         await requestJSON(
             "/auth/register",
             {
-                method: "POST",
+                method:
+                    "POST",
 
                 headers: {
                     "Content-Type":
                         "application/json"
                 },
 
-                body: JSON.stringify({
-                    email,
-                    password
-                })
+                body:
+                    JSON.stringify({
+                        email,
+                        password
+                    })
             }
         );
 
@@ -591,10 +799,15 @@ const indexHTML = `
 
     authForm.addEventListener(
         "submit",
-        async function(event) {
+
+        async function(
+            event
+        ) {
             event.preventDefault();
 
-            clearMessage(authMessage);
+            clearMessage(
+                authMessage
+            );
 
             const email =
                 emailInput.value.trim();
@@ -602,10 +815,14 @@ const indexHTML = `
             const password =
                 passwordInput.value;
 
-            submitButton.disabled = true;
+            submitButton.disabled =
+                true;
 
             try {
-                if (mode === "login") {
+
+                if (
+                    mode === "login"
+                ) {
                     await login(
                         email,
                         password
@@ -616,14 +833,19 @@ const indexHTML = `
                         password
                     );
                 }
+
             } catch (error) {
+
                 setMessage(
                     authMessage,
                     error.message,
                     "error"
                 );
+
             } finally {
-                submitButton.disabled = false;
+
+                submitButton.disabled =
+                    false;
             }
         }
     );
@@ -631,11 +853,18 @@ const indexHTML = `
 
     switchModeButton.addEventListener(
         "click",
-        function() {
-            clearMessage(authMessage);
 
-            if (mode === "login") {
-                mode = "register";
+        function() {
+
+            clearMessage(
+                authMessage
+            );
+
+            if (
+                mode === "login"
+            ) {
+                mode =
+                    "register";
 
                 authSubtitle.textContent =
                     "Создай аккаунт";
@@ -651,8 +880,11 @@ const indexHTML = `
 
                 passwordInput.autocomplete =
                     "new-password";
+
             } else {
-                mode = "login";
+
+                mode =
+                    "login";
 
                 authSubtitle.textContent =
                     "Войди в свой аккаунт";
@@ -675,29 +907,42 @@ const indexHTML = `
 
     connectTelegramButton.addEventListener(
         "click",
-        async function() {
-            clearMessage(accountMessage);
 
-            const token = getToken();
+        async function() {
+
+            clearMessage(
+                accountMessage
+            );
+
+            telegramResult.style.display =
+                "none";
+
+            const token =
+                getToken();
 
             if (!token) {
                 clearSession();
                 showAuth();
+
                 return;
             }
 
-            connectTelegramButton.disabled = true;
+            connectTelegramButton.disabled =
+                true;
 
             try {
+
                 const data =
                     await requestJSON(
                         "/auth/telegram/link-code",
                         {
-                            method: "POST",
+                            method:
+                                "POST",
 
                             headers: {
                                 "Authorization":
-                                    "Bearer " + token
+                                    "Bearer " +
+                                    token
                             }
                         }
                     );
@@ -712,15 +957,14 @@ const indexHTML = `
                     data.code;
 
                 telegramCommand.textContent =
-                    "/link " + data.code;
-
-                telegramResult.style.display =
-                    "block";
+                    "/link " +
+                    data.code;
 
                 const startParameter =
-                    "link_" + data.code;
+                    "link_" +
+                    data.code;
 
-                const telegramURL =
+                telegramLink.href =
                     "https://t.me/" +
                     telegramBotUsername +
                     "?start=" +
@@ -728,10 +972,17 @@ const indexHTML = `
                         startParameter
                     );
 
-                window.location.href =
-                    telegramURL;
+                telegramResult.style.display =
+                    "block";
+
+                setMessage(
+                    accountMessage,
+                    "Ссылка создана. Нажми «Открыть бота в Telegram» и затем Start.",
+                    "success"
+                );
 
             } catch (error) {
+
                 if (
                     error.message
                         .toLowerCase()
@@ -739,6 +990,7 @@ const indexHTML = `
                 ) {
                     clearSession();
                     showAuth();
+
                     return;
                 }
 
@@ -749,6 +1001,7 @@ const indexHTML = `
                 );
 
             } finally {
+
                 connectTelegramButton.disabled =
                     false;
             }
@@ -758,8 +1011,10 @@ const indexHTML = `
 
     logoutButton.addEventListener(
         "click",
+
         function() {
             clearSession();
+
             showAuth();
         }
     );
@@ -773,6 +1028,7 @@ const indexHTML = `
             "movietracker_email"
         );
 
+
     if (
         existingToken &&
         existingEmail
@@ -780,9 +1036,13 @@ const indexHTML = `
         showAccount(
             existingEmail
         );
+    } else {
+        showAuth();
     }
+
 </script>
 
 </body>
+
 </html>
 `

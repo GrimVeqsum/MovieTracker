@@ -1,0 +1,24 @@
+services:
+  kafka:
+    ports:
+      - "9092:19092"
+
+  library-postgres:
+    ports:
+      - "5433:5432"
+
+  library-app:
+    ports:
+      - "8081:8081"
+
+  auth-postgres:
+    ports:
+      - "5434:5432"
+
+  auth-app:
+    ports:
+      - "8082:8082"
+
+  gateway-app:
+    ports:
+      - "8080:8080"
