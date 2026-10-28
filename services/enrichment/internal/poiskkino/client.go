@@ -5,26 +5,40 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
-const baseURL = "https://api.poiskkino.dev/v1.4"
+const defaultBaseURL = "https://api.poiskkino.dev/v1.4"
 
 var ErrMovieNotFound = errors.New("movie not found")
 
 type Client struct {
+	baseURL    string
 	apiKey     string
 	httpClient *http.Client
 }
 
 func NewClient(apiKey string) *Client {
+	return NewClientWithBaseURL(apiKey, defaultBaseURL)
+}
+
+// NewClientWithBaseURL allows an isolated local API in integration tests.
+func NewClientWithBaseURL(apiKey, baseURL string) *Client {
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 	return &Client{
-		apiKey: apiKey,
+		baseURL: strings.TrimRight(baseURL, "/"),
+		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
+			// An API redirect must not forward our API key to another host.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
 }
@@ -66,7 +80,7 @@ func (client *Client) FindMovie(
 	releaseYear *int,
 ) (*MovieDetails, error) {
 	searchURL, err := url.Parse(
-		baseURL + "/movie/search",
+		client.baseURL + "/movie/search",
 	)
 	if err != nil {
 		return nil, err
@@ -115,7 +129,7 @@ func (client *Client) FindMovie(
 		}
 	}
 
-	detailsURL := baseURL +
+	detailsURL := client.baseURL +
 		"/movie/" +
 		strconv.Itoa(movieID)
 
@@ -130,6 +144,9 @@ func (client *Client) FindMovie(
 		return nil, err
 	}
 
+	if movie.ID <= 0 {
+		return nil, errors.New("PoiskKino returned invalid movie details")
+	}
 	return &movie, nil
 }
 
@@ -179,7 +196,15 @@ func (client *Client) get(
 		)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+	const maxResponseBytes = 2 << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > maxResponseBytes {
+		return errors.New("PoiskKino response exceeds size limit")
+	}
+	if err := json.Unmarshal(data, result); err != nil {
 		return err
 	}
 

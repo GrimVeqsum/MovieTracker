@@ -1,0 +1,198 @@
+# Isolated project with disposable, project-scoped volumes; no external volumes.
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: integration
+      POSTGRES_PASSWORD: integration-only-password
+      POSTGRES_DB: integration
+    ports:
+      - "127.0.0.1::5432"
+    volumes:
+      - ./databases.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+      - test_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U integration -d integration"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  kafka-volume-init:
+    image: alpine:3.23
+    user: "0:0"
+    volumes:
+      - test_kafka_data:/kafka-data
+    command: [sh, -ec, "chown 1000:1000 /kafka-data && chmod 750 /kafka-data"]
+
+  kafka:
+    depends_on:
+      kafka-volume-init:
+        condition: service_completed_successfully
+    image: apache/kafka:4.3.1
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:19092,EXTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://127.0.0.1:${TEST_KAFKA_PORT:?TEST_KAFKA_PORT is required}
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_DIRS: /tmp/kafka-test-data/logs
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    ports:
+      - "127.0.0.1:${TEST_KAFKA_PORT}:29092"
+    volumes:
+      - test_kafka_data:/tmp/kafka-test-data
+    healthcheck:
+      test: [CMD-SHELL, "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:19092 --list >/dev/null 2>&1"]
+      interval: 3s
+      timeout: 10s
+      retries: 40
+      start_period: 10s
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    profiles: [proxy]
+    # Linux host networking lets the Go test use distinct loopback source IPs.
+    network_mode: host
+    environment:
+      CADDY_TEST_LISTEN: ${CADDY_TEST_LISTEN:-127.0.0.1:39080}
+      CADDY_TEST_UPSTREAM: ${CADDY_TEST_UPSTREAM:-127.0.0.1:39081}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    tmpfs:
+      - /data
+      - /config
+
+
+  auth-migrate:
+    image: migrate/migrate:v4.19.1
+    profiles: [apps]
+    volumes:
+      - ../../services/auth/migrations:/migrations:ro
+    command: ["-path", /migrations, "-database", "postgres://integration:integration-only-password@postgres:5432/auth_test?sslmode=disable", up]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  library-migrate:
+    image: migrate/migrate:v4.19.1
+    profiles: [apps]
+    volumes:
+      - ../../services/library/migrations:/migrations:ro
+    command: ["-path", /migrations, "-database", "postgres://integration:integration-only-password@postgres:5432/library_test?sslmode=disable", up]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  auth:
+    profiles: [apps]
+    build: ../../services/auth
+    environment:
+      AUTH_HTTP_PORT: "8082"
+      AUTH_DATABASE_URL: postgres://integration:integration-only-password@postgres:5432/auth_test?sslmode=disable
+      AUTH_JWT_SECRET: integration-only-jwt-key-at-least-32-bytes
+      AUTH_TELEGRAM_SERVICE_SECRET: integration-only-telegram-service
+    depends_on:
+      auth-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:8082/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    stop_grace_period: 45s
+
+  library:
+    profiles: [apps]
+    build: ../../services/library
+    environment:
+      LIBRARY_HTTP_PORT: "8081"
+      LIBRARY_DATABASE_URL: postgres://integration:integration-only-password@postgres:5432/library_test?sslmode=disable
+      LIBRARY_JWT_SECRET: integration-only-jwt-key-at-least-32-bytes
+      LIBRARY_KAFKA_BROKER: kafka:19092
+      LIBRARY_KAFKA_TOPIC: lifecycle.events
+      LIBRARY_ENRICHMENT_SERVICE_SECRET: integration-only-enrichment-service
+    depends_on:
+      library-migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:8081/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    stop_grace_period: 45s
+
+  gateway:
+    profiles: [apps]
+    build: ../../services/gateway
+    environment:
+      GATEWAY_HTTP_PORT: "8080"
+      AUTH_SERVICE_URL: http://auth:8082
+      LIBRARY_SERVICE_URL: http://library:8081
+      TELEGRAM_BOT_USERNAME: integration_test_bot
+    ports:
+      - "127.0.0.1::8080"
+    depends_on:
+      auth:
+        condition: service_healthy
+      library:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:8080/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    stop_grace_period: 45s
+
+
+  movie-api:
+    profiles: [apps]
+    image: python:3.13-alpine
+    command: [python, -B, /fixture/movie_api.py]
+    volumes:
+      - ./movie_api.py:/fixture/movie_api.py:ro
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/health', timeout=2).read()"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  enrichment:
+    profiles: [apps]
+    build: ../../services/enrichment
+    environment:
+      ENRICHMENT_KAFKA_BROKER: kafka:19092
+      ENRICHMENT_KAFKA_TOPIC: lifecycle.events
+      ENRICHMENT_KAFKA_DLQ_TOPIC: lifecycle.events.dlq
+      ENRICHMENT_KAFKA_GROUP: lifecycle-enrichment
+      ENRICHMENT_LIBRARY_URL: http://library:8081
+      ENRICHMENT_LIBRARY_SERVICE_SECRET: integration-only-enrichment-service
+      MOVIE_API_KEY: integration-only-api-key
+      MOVIE_API_URL: http://movie-api:8085/v1.4
+    depends_on:
+      library:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      movie-api:
+        condition: service_healthy
+    stop_grace_period: 45s
+
+
+# Created only under the random movietracker-it-* project. The runner removes
+# precisely these disposable test volumes on exit; production volumes are absent.
+volumes:
+  test_postgres_data:
+  test_kafka_data:

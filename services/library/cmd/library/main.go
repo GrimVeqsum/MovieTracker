@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -22,18 +23,20 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Printf("library service failed: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	_ = godotenv.Load()
 
 	cfg, err :=
 		config.Load()
 
 	if err != nil {
-		log.Printf(
-			"config error: %v",
-			err,
-		)
-
-		return
+		return fmt.Errorf("load configuration: %w", err)
 	}
 
 	db, err :=
@@ -43,12 +46,7 @@ func main() {
 		)
 
 	if err != nil {
-		log.Printf(
-			"database connection error: %v",
-			err,
-		)
-
-		return
+		return fmt.Errorf("connect database: %w", err)
 	}
 
 	defer db.Close()
@@ -60,12 +58,7 @@ func main() {
 		)
 
 	if err != nil {
-		log.Printf(
-			"Kafka producer error: %v",
-			err,
-		)
-
-		return
+		return fmt.Errorf("create Kafka producer: %w", err)
 	}
 
 	defer kafkaProducer.Close()
@@ -148,10 +141,13 @@ func main() {
 			kafkaProducer,
 		)
 
-	go outboxWorker.Run(
-		ctx,
-	)
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		outboxWorker.Run(ctx)
+	}()
 
+	serverErrors := make(chan error, 1)
 	go func() {
 		log.Println(
 			"library service started on",
@@ -164,10 +160,8 @@ func main() {
 		if err != nil &&
 			err != http.ErrServerClosed {
 
-			log.Printf(
-				"HTTP server error: %v",
-				err,
-			)
+			serverErrors <- err
+			stop()
 		}
 	}()
 
@@ -180,14 +174,15 @@ func main() {
 	shutdownCtx, cancel :=
 		context.WithTimeout(
 			context.Background(),
-			5*time.Second,
+			15*time.Second,
 		)
 
 	defer cancel()
 
 	err =
-		server.Shutdown(
+		shutdownServer(
 			shutdownCtx,
+			server,
 		)
 
 	if err != nil {
@@ -197,7 +192,22 @@ func main() {
 		)
 	}
 
-	log.Println(
-		"library service stopped",
-	)
+	<-workerDone
+	log.Println("library service stopped")
+	select {
+	case serverErr := <-serverErrors:
+		return serverErr
+	default:
+		return err
+	}
+}
+
+// Shutdown alone leaves active request contexts alive when its deadline expires.
+// Close cancels them before PostgreSQL waits for checked-out connections.
+func shutdownServer(ctx context.Context, server *http.Server) error {
+	if err := server.Shutdown(ctx); err != nil {
+		_ = server.Close()
+		return err
+	}
+	return nil
 }

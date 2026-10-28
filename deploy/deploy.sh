@@ -67,7 +67,10 @@ chmod 700 "$SECRETS_DIR"
 
 for secret in $REQUIRED_SECRETS
 do
-    chmod 600 "$SECRETS_DIR/$secret"
+    # Compose mounts file secrets as bind mounts: uid/mode overrides do not
+    # change host permissions. App containers run as uid 10001 and must read
+    # the file. The 0700 parent directory restricts access on the host.
+    chmod 644 "$SECRETS_DIR/$secret"
 done
 
 

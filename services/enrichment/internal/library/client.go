@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -36,7 +36,8 @@ func NewClient(
 		),
 
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:       10 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
 }
@@ -72,7 +73,7 @@ func (client *Client) UpdateMetadata(
 		fmt.Sprintf(
 			"%s/internal/movies/%s/metadata",
 			client.baseURL,
-			movieID,
+			url.PathEscape(movieID),
 		)
 
 	return client.patchJSON(
@@ -99,7 +100,7 @@ func (client *Client) MarkMetadataFailed(
 		fmt.Sprintf(
 			"%s/internal/movies/%s/metadata/failed",
 			client.baseURL,
-			movieID,
+			url.PathEscape(movieID),
 		)
 
 	return client.patchJSON(
@@ -173,29 +174,13 @@ func (client *Client) patchJSON(
 		return nil
 	}
 
-	errorBody, _ :=
-		io.ReadAll(
-			io.LimitReader(
-				resp.Body,
-				4096,
-			),
-		)
+	// Do not put upstream bodies into logs or the DLQ: they may contain
+	// database details, reflected credentials, or arbitrarily large content.
+	return &HTTPError{StatusCode: resp.StatusCode}
+}
 
-	message :=
-		strings.TrimSpace(
-			string(errorBody),
-		)
+type HTTPError struct{ StatusCode int }
 
-	if message == "" {
-		return fmt.Errorf(
-			"library returned status %d",
-			resp.StatusCode,
-		)
-	}
-
-	return fmt.Errorf(
-		"library returned status %d: %s",
-		resp.StatusCode,
-		message,
-	)
+func (err *HTTPError) Error() string {
+	return fmt.Sprintf("library returned status %d", err.StatusCode)
 }

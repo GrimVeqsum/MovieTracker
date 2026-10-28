@@ -22,16 +22,20 @@ type Handler struct {
 	service *Service
 
 	secureCookies bool
+
+	publicOrigin string
 }
 
 func NewHandler(
 	service *Service,
 	secureCookies bool,
+	publicOrigin string,
 ) *Handler {
 	return &Handler{
 		service: service,
 
 		secureCookies: secureCookies,
+		publicOrigin:  publicOrigin,
 	}
 }
 
@@ -186,6 +190,9 @@ func (handler *Handler) Login(
 	r *http.Request,
 ) {
 	disableAuthCaching(w)
+	if !handler.allowBrowserAuthRequest(w, r) {
+		return
+	}
 
 	var request loginRequest
 
@@ -271,6 +278,9 @@ func (handler *Handler) Refresh(
 	r *http.Request,
 ) {
 	disableAuthCaching(w)
+	if !handler.allowBrowserAuthRequest(w, r) {
+		return
+	}
 
 	refreshToken, ok :=
 		readRefreshCookie(
@@ -299,10 +309,8 @@ func (handler *Handler) Refresh(
 			err,
 			ErrInvalidRefreshToken,
 		) {
-			handler.clearRefreshCookie(
-				w,
-			)
-
+			// A concurrent rotation may already have installed a new cookie.
+			// A late failure must not overwrite that successful response.
 			response.Error(
 				w,
 				http.StatusUnauthorized,
@@ -345,6 +353,9 @@ func (handler *Handler) Logout(
 	r *http.Request,
 ) {
 	disableAuthCaching(w)
+	if !handler.allowBrowserAuthRequest(w, r) {
+		return
+	}
 
 	refreshToken, ok :=
 		readRefreshCookie(

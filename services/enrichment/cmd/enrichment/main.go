@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,21 +15,24 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Printf("enrichment-service failed: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err :=
 		config.Load()
 
 	if err != nil {
-		log.Printf(
-			"config error: %v",
-			err,
-		)
-
-		return
+		return fmt.Errorf("config: %w", err)
 	}
 
 	movieClient :=
-		poiskkino.NewClient(
+		poiskkino.NewClientWithBaseURL(
 			cfg.MovieAPIKey,
+			cfg.MovieAPIURL,
 		)
 
 	libraryClient :=
@@ -48,12 +52,7 @@ func main() {
 		)
 
 	if err != nil {
-		log.Printf(
-			"Kafka consumer error: %v",
-			err,
-		)
-
-		return
+		return err
 	}
 
 	defer consumer.Close()
@@ -71,11 +70,12 @@ func main() {
 		"enrichment-service started",
 	)
 
-	consumer.Run(
-		ctx,
-	)
+	if err := consumer.Run(ctx); err != nil {
+		return err
+	}
 
 	log.Println(
 		"enrichment-service stopped",
 	)
+	return nil
 }

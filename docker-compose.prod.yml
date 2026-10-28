@@ -25,11 +25,17 @@ services:
   auth-app:
     environment:
       AUTH_COOKIE_SECURE: "true"
+      AUTH_PUBLIC_ORIGIN: https://${MOVIETRACKER_DOMAIN:?MOVIETRACKER_DOMAIN is required}
 
     logging: *default-logging
 
 
   gateway-app:
+    environment:
+      GATEWAY_TRUSTED_PROXIES: ${MOVIETRACKER_INGRESS_CIDR:-172.30.253.0/29}
+    networks:
+      - default
+      - ingress
     logging: *default-logging
 
 
@@ -42,6 +48,8 @@ services:
 
 
   caddy:
+    networks:
+      - ingress
     image: caddy:2.11.4-alpine
 
     container_name: movietracker-caddy
@@ -67,6 +75,14 @@ services:
 
     restart: unless-stopped
 
+
+# Only Caddy and Gateway can join this trusted proxy segment. Backend
+# services on the default network cannot supply trusted forwarding headers.
+networks:
+  ingress:
+    ipam:
+      config:
+        - subnet: ${MOVIETRACKER_INGRESS_CIDR:-172.30.253.0/29}
 
 volumes:
   caddy_data:

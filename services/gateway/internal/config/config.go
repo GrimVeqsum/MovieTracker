@@ -7,6 +7,7 @@ import (
 )
 
 type Config struct {
+	TrustedProxies      []string
 	HTTPPort            string
 	AuthServiceURL      string
 	LibraryServiceURL   string
@@ -45,6 +46,7 @@ func Load() (Config, error) {
 	)
 
 	return Config{
+		TrustedProxies:      strings.Split(os.Getenv("GATEWAY_TRUSTED_PROXIES"), ","),
 		HTTPPort:            httpPort,
 		AuthServiceURL:      authServiceURL,
 		LibraryServiceURL:   libraryServiceURL,

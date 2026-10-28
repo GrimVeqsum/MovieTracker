@@ -3,7 +3,6 @@ package users
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -52,6 +51,7 @@ func (
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
+	disableAuthCaching(w)
 	token, ok :=
 		readBearerToken(r)
 
@@ -124,21 +124,8 @@ func (
 
 	var request telegramLinkRequest
 
-	decoder :=
-		json.NewDecoder(
-			http.MaxBytesReader(
-				w,
-				r.Body,
-				4096,
-			),
-		)
-
-	decoder.DisallowUnknownFields()
-
-	if err :=
-		decoder.Decode(
-			&request,
-		); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := decodeAuthJSON(w, r, &request); err != nil {
 
 		response.Error(
 			w,
@@ -225,6 +212,7 @@ func (
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
+	disableAuthCaching(w)
 	if !handler.authorizedService(r) {
 		response.Error(
 			w,
@@ -237,21 +225,8 @@ func (
 
 	var request telegramTokenRequest
 
-	decoder :=
-		json.NewDecoder(
-			http.MaxBytesReader(
-				w,
-				r.Body,
-				4096,
-			),
-		)
-
-	decoder.DisallowUnknownFields()
-
-	if err :=
-		decoder.Decode(
-			&request,
-		); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := decodeAuthJSON(w, r, &request); err != nil {
 
 		response.Error(
 			w,

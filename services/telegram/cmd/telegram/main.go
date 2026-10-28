@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,15 +15,18 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err :=
 		config.Load()
 
 	if err != nil {
-		log.Printf(
-			"config error: %v",
-			err,
-		)
-		return
+		return fmt.Errorf("config: %w", err)
 	}
 
 	telegramClient :=
@@ -50,11 +54,10 @@ func main() {
 		telegramClient.GetMe(ctx)
 
 	if err != nil {
-		log.Printf(
-			"Telegram getMe error: %v",
-			err,
-		)
-		return
+		if ctx.Err() != nil {
+			return nil
+		}
+		return fmt.Errorf("Telegram getMe: %w", err)
 	}
 
 	log.Printf(
@@ -73,18 +76,9 @@ func main() {
 		"telegram-service started",
 	)
 
-	if err :=
-		telegramBot.Run(
-			ctx,
-		); err != nil {
-
-		log.Printf(
-			"telegram bot stopped with error: %v",
-			err,
-		)
+	if err := telegramBot.Run(ctx); err != nil {
+		return fmt.Errorf("telegram bot: %w", err)
 	}
-
-	log.Println(
-		"telegram-service stopped",
-	)
+	log.Println("telegram-service stopped")
+	return nil
 }

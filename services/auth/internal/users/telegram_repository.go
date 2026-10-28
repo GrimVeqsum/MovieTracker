@@ -62,7 +62,7 @@ func (repo *Repository) LinkTelegram(
 		return err
 	}
 
-	defer tx.Rollback(queryCtx)
+	defer rollbackSession(tx)
 
 	var userID string
 

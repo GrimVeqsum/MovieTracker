@@ -116,7 +116,8 @@ func NewClient(
 		authServiceSecret: authServiceSecret,
 
 		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout:       5 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
 }
@@ -342,7 +343,7 @@ func (client *Client) TelegramToken(
 
 	err =
 		json.NewDecoder(
-			resp.Body,
+			io.LimitReader(resp.Body, 1<<20),
 		).Decode(
 			&responseBody,
 		)

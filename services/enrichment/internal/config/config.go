@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -16,6 +17,7 @@ type Config struct {
 	KafkaGroup string
 
 	MovieAPIKey string
+	MovieAPIURL string
 
 	LibraryURL string
 
@@ -109,6 +111,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	movieAPIURL := strings.TrimSpace(os.Getenv("MOVIE_API_URL"))
+	if movieAPIURL != "" {
+		parsed, err := url.Parse(movieAPIURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+			return Config{}, errors.New("MOVIE_API_URL must be an absolute HTTP(S) URL without credentials")
+		}
+	}
+	if kafkaTopic == kafkaDLQTopic {
+		return Config{}, errors.New("Kafka event and DLQ topics must differ")
+	}
+
 	return Config{
 		KafkaBroker: kafkaBroker,
 
@@ -119,6 +132,7 @@ func Load() (Config, error) {
 		KafkaGroup: kafkaGroup,
 
 		MovieAPIKey: movieAPIKey,
+		MovieAPIURL: movieAPIURL,
 
 		LibraryURL: libraryURL,
 

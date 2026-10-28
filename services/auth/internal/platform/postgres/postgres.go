@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,7 +14,8 @@ func NewConnection(ctx context.Context, databaseURL string) (*pgxpool.Pool, erro
 
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, err
+		// Parser errors can embed a malformed DSN, including its password.
+		return nil, errors.New("invalid database connection configuration")
 	}
 
 	config.MaxConns = 5

@@ -143,7 +143,7 @@ func TestIPRateLimiterSeparatesClients(
 	}
 }
 
-func TestClientIPUsesForwardedAddress(
+func TestClientIPIgnoresUntrustedForwardedAddress(
 	t *testing.T,
 ) {
 	request :=
@@ -163,9 +163,9 @@ func TestClientIPUsesForwardedAddress(
 			request,
 		)
 
-	if got != "198.51.100.25" {
+	if got != "192.0.2.1" {
 		t.Fatalf(
-			"expected 198.51.100.25, got %s",
+			"expected peer 192.0.2.1, got %s",
 			got,
 		)
 	}

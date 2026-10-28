@@ -73,6 +73,8 @@ services:
       retries: 20
       start_period: 10s
 
+    stop_grace_period: 45s
+
     restart: unless-stopped
 
 
@@ -149,6 +151,8 @@ services:
       retries: 20
       start_period: 10s
 
+    stop_grace_period: 45s
+
     restart: unless-stopped
 
 
@@ -171,10 +175,11 @@ services:
       - -ec
       - |
         DB_PASSWORD="$$(cat /run/secrets/library_db_password)"
+        DB_PASSWORD_ENCODED="$$(printf '%s' "$${DB_PASSWORD}" | od -An -v -tx1 | tr -d ' \n' | sed 's/../%&/g')"
 
         exec /migrate \
           -path /migrations \
-          -database "postgres://library_user:$${DB_PASSWORD}@library-postgres:5432/library_db?sslmode=disable" \
+          -database "postgres://library_user:$${DB_PASSWORD_ENCODED}@library-postgres:5432/library_db?sslmode=disable" \
           up
 
 
@@ -208,6 +213,9 @@ services:
       - enrichment_library_service_token
 
     depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
       library-migrations:
         condition: service_completed_successfully
 
@@ -215,12 +223,14 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -q -O /dev/null http://127.0.0.1:8081/health || exit 1"
+          "wget -q -O /dev/null http://127.0.0.1:8081/ready || exit 1"
         ]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 10s
+
+    stop_grace_period: 45s
 
     restart: unless-stopped
 
@@ -251,6 +261,8 @@ services:
       retries: 20
       start_period: 10s
 
+    stop_grace_period: 45s
+
     restart: unless-stopped
 
 
@@ -273,10 +285,11 @@ services:
       - -ec
       - |
         DB_PASSWORD="$$(cat /run/secrets/auth_db_password)"
+        DB_PASSWORD_ENCODED="$$(printf '%s' "$${DB_PASSWORD}" | od -An -v -tx1 | tr -d ' \n' | sed 's/../%&/g')"
 
         exec /migrate \
           -path /migrations \
-          -database "postgres://auth_user:$${DB_PASSWORD}@auth-postgres:5432/auth_db?sslmode=disable" \
+          -database "postgres://auth_user:$${DB_PASSWORD_ENCODED}@auth-postgres:5432/auth_db?sslmode=disable" \
           up
 
 
@@ -314,12 +327,14 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -q -O /dev/null http://127.0.0.1:8082/health || exit 1"
+          "wget -q -O /dev/null http://127.0.0.1:8082/ready || exit 1"
         ]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 10s
+
+    stop_grace_period: 45s
 
     restart: unless-stopped
 
@@ -351,12 +366,14 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"
+          "wget -q -O /dev/null http://127.0.0.1:8080/ready || exit 1"
         ]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 10s
+
+    stop_grace_period: 45s
 
     restart: unless-stopped
 
@@ -388,8 +405,13 @@ services:
       - enrichment_library_service_token
 
     depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
       library-app:
         condition: service_healthy
+
+    stop_grace_period: 45s
 
     restart: unless-stopped
 
@@ -420,6 +442,8 @@ services:
 
       library-app:
         condition: service_healthy
+
+    stop_grace_period: 45s
 
     restart: unless-stopped
 

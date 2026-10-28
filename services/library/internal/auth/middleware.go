@@ -9,6 +9,7 @@ import (
 	"movie-platform/library/internal/transport/http/response"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 const jwtClockLeeway = 30 * time.Second
@@ -104,15 +105,13 @@ func NewMiddleware(
 					return
 				}
 
-				if strings.TrimSpace(
-					claims.Subject,
-				) == "" {
+				if _, err := uuid.Parse(claims.Subject); err != nil {
 
 					response.Error(
 						w,
 						http.StatusUnauthorized,
 						"unauthorized",
-						"user id is empty",
+						"invalid token",
 					)
 
 					return

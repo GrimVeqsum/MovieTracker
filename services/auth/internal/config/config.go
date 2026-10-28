@@ -36,6 +36,8 @@ type Config struct {
 	TelegramServiceSecret string
 
 	CookieSecure bool
+
+	PublicOrigin string
 }
 
 func Load() (Config, error) {
@@ -121,6 +123,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	publicOrigin := strings.TrimSpace(os.Getenv("AUTH_PUBLIC_ORIGIN"))
+	if publicOrigin != "" {
+		u, parseErr := url.Parse(publicOrigin)
+		if parseErr != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+			return Config{}, fmt.Errorf("AUTH_PUBLIC_ORIGIN must be an http(s) origin without a path")
+		}
+		if cookieSecure && u.Scheme != "https" {
+			return Config{}, fmt.Errorf("AUTH_PUBLIC_ORIGIN must use https with secure cookies")
+		}
+	}
+
 	return Config{
 		HTTPPort: httpPort,
 
@@ -135,6 +148,7 @@ func Load() (Config, error) {
 		TelegramServiceSecret: telegramServiceSecret,
 
 		CookieSecure: cookieSecure,
+		PublicOrigin: publicOrigin,
 	}, nil
 }
 

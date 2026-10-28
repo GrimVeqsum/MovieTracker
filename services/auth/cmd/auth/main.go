@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,13 +20,18 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err :=
 		config.Load()
 
 	if err != nil {
-		log.Fatal(
-			err,
-		)
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	db, err :=
@@ -34,10 +41,7 @@ func main() {
 		)
 
 	if err != nil {
-		log.Fatalf(
-			"database connection error: %v",
-			err,
-		)
+		return fmt.Errorf("database connection: %w", err)
 	}
 
 	defer db.Close()
@@ -64,6 +68,7 @@ func main() {
 		users.NewHandler(
 			userService,
 			cfg.CookieSecure,
+			cfg.PublicOrigin,
 		)
 
 	telegramHandler :=
@@ -105,41 +110,27 @@ func main() {
 
 	defer stop()
 
+	serveErrors := make(chan error, 1)
 	go func() {
-		log.Println(
-			"auth service started on",
-			addr,
-		)
-
-		if err :=
-			server.ListenAndServe(); err != nil &&
-			err != http.ErrServerClosed {
-
-			log.Fatalf(
-				"server error: %v",
-				err,
-			)
-		}
+		log.Println("auth service started on", addr)
+		serveErrors <- server.ListenAndServe()
 	}()
 
-	<-ctx.Done()
-
-	shutdownCtx, cancel :=
-		context.WithTimeout(
-			context.Background(),
-			5*time.Second,
-		)
-
-	defer cancel()
-
-	if err :=
-		server.Shutdown(
-			shutdownCtx,
-		); err != nil {
-
-		log.Printf(
-			"server shutdown error: %v",
-			err,
-		)
+	select {
+	case <-ctx.Done():
+	case err := <-serveErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve HTTP: %w", err)
+		}
+		return nil
 	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		// Cancel active connection contexts before waiting for database users.
+		_ = server.Close()
+		return fmt.Errorf("shutdown HTTP: %w", err)
+	}
+	return nil
 }

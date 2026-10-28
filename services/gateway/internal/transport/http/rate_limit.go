@@ -3,10 +3,8 @@ package httptransport
 import (
 	"encoding/json"
 	"math"
-	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -98,6 +96,10 @@ func (limiter *IPRateLimiter) allow(
 		limiter.entries[key]
 
 	if !exists {
+		// Bound memory under a distributed flood; new clients retry after cleanup.
+		if len(limiter.entries) >= 10000 {
+			return false, limiter.window
+		}
 		limiter.entries[key] =
 			&rateLimitEntry{
 				windowStartedAt: now,
@@ -186,57 +188,7 @@ func (limiter *IPRateLimiter) cleanupLocked(
 func clientIP(
 	r *http.Request,
 ) string {
-	forwardedFor :=
-		strings.TrimSpace(
-			r.Header.Get(
-				"X-Forwarded-For",
-			),
-		)
-
-	if forwardedFor != "" {
-		first :=
-			strings.TrimSpace(
-				strings.Split(
-					forwardedFor,
-					",",
-				)[0],
-			)
-
-		if parsedIP :=
-			net.ParseIP(
-				first,
-			); parsedIP != nil {
-
-			return parsedIP.String()
-		}
-	}
-
-	host, _, err :=
-		net.SplitHostPort(
-			r.RemoteAddr,
-		)
-
-	if err == nil {
-		if parsedIP :=
-			net.ParseIP(
-				host,
-			); parsedIP != nil {
-
-			return parsedIP.String()
-		}
-
-		return host
-	}
-
-	if parsedIP :=
-		net.ParseIP(
-			r.RemoteAddr,
-		); parsedIP != nil {
-
-		return parsedIP.String()
-	}
-
-	return r.RemoteAddr
+	return requestForwarding(r).ip
 }
 
 func writeRateLimitError(

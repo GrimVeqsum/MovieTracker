@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -70,7 +71,8 @@ func NewClient(token string) *Client {
 		),
 
 		httpClient: &http.Client{
-			Timeout: 40 * time.Second,
+			Timeout:       40 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
 }
@@ -93,7 +95,7 @@ func (client *Client) GetMe(
 		)
 	}
 
-	resp, err := client.httpClient.Do(req)
+	resp, err := client.do(req)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"getMe request failed: %w",
@@ -101,11 +103,14 @@ func (client *Client) GetMe(
 		)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Telegram HTTP status %d", resp.StatusCode)
+	}
 
 	var response getMeResponse
 
 	if err := json.NewDecoder(
-		resp.Body,
+		io.LimitReader(resp.Body, 1<<20),
 	).Decode(&response); err != nil {
 		return nil, fmt.Errorf(
 			"decode getMe response: %w",
@@ -163,7 +168,7 @@ func (client *Client) GetUpdates(
 		)
 	}
 
-	resp, err := client.httpClient.Do(req)
+	resp, err := client.do(req)
 	if err != nil {
 		if errors.Is(
 			err,
@@ -178,11 +183,14 @@ func (client *Client) GetUpdates(
 		)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Telegram HTTP status %d", resp.StatusCode)
+	}
 
 	var response getUpdatesResponse
 
 	if err := json.NewDecoder(
-		resp.Body,
+		io.LimitReader(resp.Body, 1<<20),
 	).Decode(&response); err != nil {
 		return nil, fmt.Errorf(
 			"decode getUpdates response: %w",
@@ -239,7 +247,7 @@ func (client *Client) SendMessage(
 		"application/json",
 	)
 
-	resp, err := client.httpClient.Do(req)
+	resp, err := client.do(req)
 	if err != nil {
 		return fmt.Errorf(
 			"sendMessage request failed: %w",
@@ -247,11 +255,14 @@ func (client *Client) SendMessage(
 		)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Telegram HTTP status %d", resp.StatusCode)
+	}
 
 	var response apiResponse
 
 	if err := json.NewDecoder(
-		resp.Body,
+		io.LimitReader(resp.Body, 1<<20),
 	).Decode(&response); err != nil {
 		return fmt.Errorf(
 			"decode sendMessage response: %w",
@@ -267,4 +278,17 @@ func (client *Client) SendMessage(
 	}
 
 	return nil
+}
+
+// net/http wraps transport errors in url.Error containing the URL, including
+// Telegram's bot token. Return only the underlying transport error to callers.
+func (client *Client) do(req *http.Request) (*http.Response, error) {
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			return nil, urlErr.Err
+		}
+	}
+	return resp, err
 }

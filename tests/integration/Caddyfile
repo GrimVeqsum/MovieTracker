@@ -1,0 +1,8 @@
+{
+	admin off
+	auto_https off
+}
+
+http://{$CADDY_TEST_LISTEN} {
+	reverse_proxy {$CADDY_TEST_UPSTREAM}
+}

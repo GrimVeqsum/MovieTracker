@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const enrichmentConsumerName = "enrichment"
@@ -32,6 +34,19 @@ func (repo *Repository) UpdateMetadataIdempotent(
 	ctx context.Context,
 	params UpdateMetadataIdempotentParams,
 ) error {
+	// Metadata must not replace a year explicitly supplied by the user. If filling
+	// a missing year collides with another active movie, retain the existing
+	// identity and still apply the remaining metadata in an atomic transaction.
+	err := repo.updateMetadata(ctx, params, true)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
+		pgErr.ConstraintName == "movies_user_normalized_title_year_active_unique" {
+		return repo.updateMetadata(ctx, params, false)
+	}
+	return err
+}
+
+func (repo *Repository) updateMetadata(ctx context.Context, params UpdateMetadataIdempotentParams, fillYear bool) error {
 	queryCtx, cancel :=
 		context.WithTimeout(
 			ctx,
@@ -98,7 +113,7 @@ func (repo *Repository) UpdateMetadataIdempotent(
 				metadata_provider = $2,
 				original_title = $3,
 				description = $4,
-				release_year = $5,
+				release_year = CASE WHEN $10 THEN COALESCE(release_year, $5) ELSE release_year END,
 				poster_url = $6,
 				runtime_minutes = $7,
 				metadata_status = 'ready',
@@ -117,6 +132,7 @@ func (repo *Repository) UpdateMetadataIdempotent(
 			params.RuntimeMinutes,
 			params.ID,
 			params.UserID,
+			fillYear,
 		)
 
 	if err != nil {
@@ -147,7 +163,11 @@ func (repo *Repository) UpdateMetadataIdempotent(
 		)
 	}
 
-	for _, genreName := range params.Genres {
+	genreNames := append([]string(nil), params.Genres...)
+	sort.Slice(genreNames, func(i, j int) bool {
+		return strings.TrimSpace(genreNames[i]) < strings.TrimSpace(genreNames[j])
+	})
+	for _, genreName := range genreNames {
 
 		genreName =
 			strings.TrimSpace(

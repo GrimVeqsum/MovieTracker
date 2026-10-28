@@ -183,31 +183,10 @@ func run() error {
 			defaultReplayGroup
 	}
 
-	client, err :=
-		kgo.NewClient(
-			kgo.SeedBrokers(
-				broker,
-			),
-
-			kgo.ClientID(
-				"enrichment-dlq-replay",
-			),
-
-			kgo.ConsumerGroup(
-				group,
-			),
-
-			kgo.ConsumeTopics(
-				dlqTopic,
-			),
-
-			kgo.ConsumeResetOffset(
-				kgo.NewOffset().
-					AtStart(),
-			),
-
-			kgo.DisableAutoCommit(),
-		)
+	if targetTopic == dlqTopic {
+		return errors.New("Kafka event and DLQ topics must differ")
+	}
+	client, err := newReplayClient(broker, dlqTopic, group, eventIDFilter)
 	if err != nil {
 		return fmt.Errorf(
 			"create Kafka client: %w",
@@ -215,7 +194,7 @@ func run() error {
 		)
 	}
 
-	defer client.Close()
+	defer client.CloseAllowingRebalance()
 
 	ctx, stop :=
 		signal.NotifyContext(
@@ -236,6 +215,36 @@ func run() error {
 		eventIDFilter,
 	)
 
+	return replay(ctx, client, targetTopic, limit, idleTimeout, eventIDFilter)
+}
+
+func newReplayClient(broker, dlqTopic, group, eventIDFilter string) (*kgo.Client, error) {
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(broker),
+		kgo.ClientID("enrichment-dlq-replay"),
+		kgo.ConsumeTopics(dlqTopic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+		kgo.RequiredAcks(kgo.AllISRAcks()),
+		kgo.RecordDeliveryTimeout(publishTimeout),
+	}
+	// Filtering is an independent scan from the beginning, without a group.
+	// Committing a matching record would also acknowledge preceding unmatched
+	// records in its partition, removing them from the normal replay queue.
+	if eventIDFilter == "" {
+		opts = append(opts, kgo.ConsumerGroup(group), kgo.DisableAutoCommit(), kgo.BlockRebalanceOnPoll())
+	}
+	return kgo.NewClient(opts...)
+}
+
+type replayClient interface {
+	PollRecords(context.Context, int) kgo.Fetches
+	CommitRecords(context.Context, ...*kgo.Record) error
+	ProduceSync(context.Context, ...*kgo.Record) kgo.ProduceResults
+	AllowRebalance()
+}
+
+func replay(ctx context.Context, client replayClient, targetTopic string, limit int, idleTimeout time.Duration, eventIDFilter string) error {
+	defer client.AllowRebalance()
 	replayed :=
 		0
 
@@ -289,28 +298,7 @@ func run() error {
 			)
 		}
 
-		// Если пользователь указал конкретный event_id,
-		// остальные DLQ-сообщения просто пропускаем.
-		//
-		// Но offset обязательно commit-им,
-		// иначе эта replay-group будет снова читать
-		// те же записи.
-		if eventIDFilter != "" &&
-			candidate.EventID != eventIDFilter {
-
-			if err :=
-				commitRecord(
-					ctx,
-					client,
-					record,
-				); err != nil {
-
-				return fmt.Errorf(
-					"commit skipped DLQ record: %w",
-					err,
-				)
-			}
-
+		if eventIDFilter != "" && candidate.EventID != eventIDFilter {
 			continue
 		}
 
@@ -343,6 +331,7 @@ func run() error {
 				)
 			}
 
+			client.AllowRebalance()
 			continue
 		}
 
@@ -364,18 +353,11 @@ func run() error {
 			)
 		}
 
-		if err :=
-			commitRecord(
-				ctx,
-				client,
-				record,
-			); err != nil {
-
-			return fmt.Errorf(
-				"commit replayed DLQ record event_id=%s: %w",
-				candidate.EventID,
-				err,
-			)
+		if eventIDFilter == "" {
+			if err := commitRecord(ctx, client, record); err != nil {
+				return fmt.Errorf("commit replayed DLQ record event_id=%s: %w", candidate.EventID, err)
+			}
+			client.AllowRebalance()
 		}
 
 		seenEventIDs[candidate.EventID] = struct{}{}
@@ -411,7 +393,7 @@ func run() error {
 
 func pollOne(
 	ctx context.Context,
-	client *kgo.Client,
+	client replayClient,
 	idleTimeout time.Duration,
 ) (*kgo.Record, error) {
 	pollCtx, cancel :=
@@ -597,7 +579,7 @@ func decodeReplayCandidate(
 
 func publishCandidate(
 	ctx context.Context,
-	client *kgo.Client,
+	client replayClient,
 	candidate replayCandidate,
 	targetTopic string,
 	dlqTopic string,
@@ -654,7 +636,7 @@ func publishCandidate(
 
 func commitRecord(
 	ctx context.Context,
-	client *kgo.Client,
+	client replayClient,
 	record *kgo.Record,
 ) error {
 	commitCtx, cancel :=

@@ -120,10 +120,11 @@ func (handler *Handler) UpdateMetadata(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	movieID :=
-		strings.TrimSpace(
-			r.PathValue("id"),
-		)
+	movieID, err := uuid.Parse(strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid_movie_id", "movie id must be a valid UUID")
+		return
+	}
 
 	var request UpdateMetadataRequest
 
@@ -159,27 +160,25 @@ func (handler *Handler) UpdateMetadata(
 		return
 	}
 
-	if strings.TrimSpace(
-		request.UserID,
-	) == "" {
+	if _, err := uuid.Parse(request.UserID); err != nil {
 
 		response.Error(
 			w,
 			http.StatusBadRequest,
 			"invalid_user_id",
-			"user_id is required",
+			"user_id must be a valid UUID",
 		)
 
 		return
 	}
 
-	err :=
+	err =
 		handler.movieService.UpdateMetadata(
 			r.Context(),
 			movies.UpdateMetadataServiceParams{
 				EventID: request.EventID,
 
-				ID: movieID,
+				ID: movieID.String(),
 
 				UserID: request.UserID,
 
@@ -227,10 +226,11 @@ func (handler *Handler) MarkMetadataFailed(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	movieID :=
-		strings.TrimSpace(
-			r.PathValue("id"),
-		)
+	movieID, err := uuid.Parse(strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid_movie_id", "movie id must be a valid UUID")
+		return
+	}
 
 	var request MarkMetadataFailedRequest
 
@@ -266,27 +266,25 @@ func (handler *Handler) MarkMetadataFailed(
 		return
 	}
 
-	if strings.TrimSpace(
-		request.UserID,
-	) == "" {
+	if _, err := uuid.Parse(request.UserID); err != nil {
 
 		response.Error(
 			w,
 			http.StatusBadRequest,
 			"invalid_user_id",
-			"user_id is required",
+			"user_id must be a valid UUID",
 		)
 
 		return
 	}
 
-	err :=
+	err =
 		handler.movieService.MarkMetadataFailed(
 			r.Context(),
 			movies.MarkMetadataFailedServiceParams{
 				EventID: request.EventID,
 
-				ID: movieID,
+				ID: movieID.String(),
 
 				UserID: request.UserID,
 

@@ -603,6 +603,10 @@ func (service *Service) userIDFromAccessToken(
 			ErrInvalidAccessToken
 	}
 
+	if _, err := uuid.Parse(claims.Subject); err != nil {
+		return "", ErrInvalidAccessToken
+	}
+
 	return claims.Subject, nil
 }
 

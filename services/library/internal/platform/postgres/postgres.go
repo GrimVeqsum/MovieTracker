@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,7 +14,7 @@ func NewConnection(ctx context.Context, databaseURL string) (*pgxpool.Pool, erro
 	defer cancel()
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse postgres config: %w", err)
+		return nil, errors.New("parse postgres config: invalid database configuration")
 	}
 
 	pool, err := pgxpool.NewWithConfig(connectCtx, config)

@@ -18,7 +18,12 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-const maxProcessingAttempts = 5
+const (
+	maxProcessingAttempts = 5
+	// Bound the rebalance gate: unresolved records remain uncommitted and are
+	// recovered by the next consumer rather than blocking the group forever.
+	maxRecordProcessingTime = 3 * time.Minute
+)
 
 type MovieProvider interface {
 	FindMovie(
@@ -42,8 +47,17 @@ type LibraryClient interface {
 	) error
 }
 
+// brokerClient is the small broker boundary used by the sequential consumer.
+type brokerClient interface {
+	PollRecords(context.Context, int) kgo.Fetches
+	CommitRecords(context.Context, ...*kgo.Record) error
+	ProduceSync(context.Context, ...*kgo.Record) kgo.ProduceResults
+	AllowRebalance()
+	CloseAllowingRebalance()
+}
+
 type Consumer struct {
-	client *kgo.Client
+	client brokerClient
 
 	dlqTopic string
 
@@ -79,6 +93,10 @@ func NewConsumer(
 		),
 
 		kgo.DisableAutoCommit(),
+		kgo.BlockRebalanceOnPoll(),
+		kgo.RebalanceTimeout(4*time.Minute),
+		kgo.RequiredAcks(kgo.AllISRAcks()),
+		kgo.RecordDeliveryTimeout(10*time.Second),
 	)
 	if err != nil {
 		return nil,
@@ -99,74 +117,43 @@ func NewConsumer(
 	}, nil
 }
 
-func (consumer *Consumer) Run(
-	ctx context.Context,
-) {
-	for {
+// Run commits a record only after the Library accepted its result or Kafka
+// acknowledged its DLQ copy. An unresolved record stops this consumer; polling
+// past it could later commit a higher offset and permanently skip the record.
+func (consumer *Consumer) Run(ctx context.Context) error {
+	defer consumer.client.AllowRebalance()
+	for ctx.Err() == nil {
+		fetches := consumer.client.PollRecords(ctx, 1)
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
-
-		fetches := consumer.client.PollRecords(
-			ctx,
-			1,
-		)
-
-		if ctx.Err() != nil {
-			return
+		// A fetch may contain records AND errors from other partitions. Logging
+		// the errors must never discard the records that already advanced cursors.
+		for _, fetchErr := range fetches.Errors() {
+			log.Printf("Kafka poll error: %v", fetchErr)
 		}
-
-		if fetchErrors := fetches.Errors(); len(fetchErrors) > 0 {
-
-			for _, fetchErr := range fetchErrors {
-				log.Printf(
-					"Kafka poll error: %v",
-					fetchErr,
-				)
-			}
-
-			continue
-		}
-
 		for _, record := range fetches.Records() {
-			err := consumer.handleRecord(
-				ctx,
-				record,
-			)
+			recordCtx, cancel := context.WithTimeout(ctx, maxRecordProcessingTime)
+			err := consumer.handleRecord(recordCtx, record)
+			if err == nil {
+				err = consumer.commitUntilSuccess(recordCtx, record)
+			}
+			cancel()
 			if err != nil {
 				if ctx.Err() != nil {
-					return
+					return nil
 				}
-
-				log.Printf(
-					"Kafka record was not resolved: topic=%s partition=%d offset=%d error=%v",
-					record.Topic,
-					record.Partition,
-					record.Offset,
-					err,
-				)
-
-				continue
+				return fmt.Errorf("resolve Kafka record topic=%s partition=%d offset=%d: %w", record.Topic, record.Partition, record.Offset, err)
 			}
-
-			if err := consumer.commitUntilSuccess(
-				ctx,
-				record,
-			); err != nil {
-
-				if ctx.Err() != nil {
-					return
-				}
-
-				log.Printf(
-					"Kafka commit stopped: %v",
-					err,
-				)
-
-				return
+		}
+		consumer.client.AllowRebalance()
+		if len(fetches.Errors()) > 0 && len(fetches.Records()) == 0 {
+			if err := waitForRetry(ctx, time.Second); err != nil {
+				return nil
 			}
 		}
 	}
+	return nil
 }
 
 func (consumer *Consumer) handleRecord(
@@ -367,10 +354,7 @@ func (consumer *Consumer) process(
 				},
 			)
 			if err != nil {
-				return fmt.Errorf(
-					"mark movie metadata failed: %w",
-					err,
-				)
+				return classifyLibraryError("mark movie metadata failed", err)
 			}
 
 			log.Printf(
@@ -451,10 +435,7 @@ func (consumer *Consumer) process(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"save movie metadata: %w",
-			err,
-		)
+		return classifyLibraryError("save movie metadata", err)
 	}
 
 	log.Printf(
@@ -845,5 +826,17 @@ func minInt(
 }
 
 func (consumer *Consumer) Close() {
-	consumer.client.Close()
+	consumer.client.CloseAllowingRebalance()
+}
+
+// A 4xx response indicates a missing film, malformed event, or configuration
+// problem. Preserve its original event in the DLQ for inspection and replay.
+func classifyLibraryError(operation string, err error) error {
+	var responseErr *library.HTTPError
+	if errors.As(err, &responseErr) {
+		if responseErr.StatusCode >= 400 && responseErr.StatusCode < 500 && responseErr.StatusCode != 429 && responseErr.StatusCode != 408 {
+			return newPermanentProcessingError(fmt.Errorf("%s: %w", operation, err))
+		}
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }

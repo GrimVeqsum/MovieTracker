@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -14,16 +15,18 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err :=
 		config.Load()
 
 	if err != nil {
-		log.Printf(
-			"config error: %v",
-			err,
-		)
-
-		return
+		return fmt.Errorf("config: %w", err)
 	}
 
 	handler :=
@@ -56,6 +59,12 @@ func main() {
 			libraryProxy,
 		)
 
+	policy, err := httptransport.NewForwardingPolicy(cfg.TrustedProxies)
+	if err != nil {
+		return fmt.Errorf("proxy configuration: %w", err)
+	}
+	router = policy.Middleware(router)
+
 	addr :=
 		":" + cfg.HTTPPort
 
@@ -84,6 +93,7 @@ func main() {
 
 	defer stop()
 
+	serverErrors := make(chan error, 1)
 	go func() {
 		log.Println(
 			"gateway service started on",
@@ -94,10 +104,8 @@ func main() {
 			server.ListenAndServe(); err != nil &&
 			err != http.ErrServerClosed {
 
-			log.Printf(
-				"server error: %v",
-				err,
-			)
+			serverErrors <- err
+			stop()
 		}
 	}()
 
@@ -106,19 +114,19 @@ func main() {
 	shutdownCtx, cancel :=
 		context.WithTimeout(
 			context.Background(),
-			5*time.Second,
+			30*time.Second,
 		)
 
 	defer cancel()
 
-	if err :=
-		server.Shutdown(
-			shutdownCtx,
-		); err != nil {
-
-		log.Printf(
-			"server shutdown error: %v",
-			err,
-		)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		_ = server.Close()
+		return fmt.Errorf("gateway shutdown: %w", err)
+	}
+	select {
+	case err := <-serverErrors:
+		return fmt.Errorf("gateway server: %w", err)
+	default:
+		return nil
 	}
 }
